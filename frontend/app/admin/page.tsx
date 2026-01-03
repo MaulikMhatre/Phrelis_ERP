@@ -46,7 +46,7 @@ const AdminPanel = () => {
       });
       const data = await res.json();
       setDispatchResult(data);
-      fetchERPData(); // Refresh list
+      fetchERPData(); 
     } catch (e) {
       console.error("Dispatch Failed", e);
     }
@@ -65,7 +65,6 @@ const AdminPanel = () => {
 
   const openAdmitModal = (bed: any) => {
     setSelectedBed(bed);
-    // If the bed has triage data, we can pre-fill the condition
     setPatientData({ 
         name: '', 
         age: '', 
@@ -101,8 +100,6 @@ const AdminPanel = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-8 relative">
-      
-      {/* --- AMBULANCE CONTROL CENTER --- */}
       <div className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Dispatch Panel */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
@@ -188,7 +185,7 @@ const AdminPanel = () => {
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={24}/></button>
             </div>
 
-            {/* TRIAGE DATA PREVIEW (The "Necessary Information") */}
+
             <div className="grid grid-cols-2 gap-3 mb-8">
               <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
                 <div className="flex items-center gap-2 text-red-500 mb-1">
@@ -271,7 +268,7 @@ const AdminPanel = () => {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        {/* BED GRID */}
+
         <div className="lg:col-span-2 space-y-8">
           
           {/* ICU SECTION */}
@@ -299,6 +296,11 @@ const AdminPanel = () => {
                         <div>
                             <p className="text-xs font-black text-gray-900 truncate uppercase">{bed.patient_name || "Unidentified"}</p>
                             <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">{bed.condition || "General"}</p>
+                            {bed.ventilator_in_use && (
+                                <span className="block mt-1 text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit">
+                                    VENTILATOR
+                                </span>
+                            )}
                         </div>
                         <button onClick={() => handleDischarge(bed.id)} className="w-full py-2 bg-red-50 text-red-600 text-[10px] font-bold rounded-lg hover:bg-red-100">
                             DISCHARGE
@@ -335,6 +337,11 @@ const AdminPanel = () => {
                         <div>
                             <p className="text-xs font-black text-gray-900 truncate uppercase">{bed.patient_name || "Unidentified"}</p>
                             <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">{bed.condition || "General"}</p>
+                            {bed.ventilator_in_use && (
+                                <span className="block mt-1 text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit">
+                                    VENTILATOR
+                                </span>
+                            )}
                         </div>
                         <button onClick={() => handleDischarge(bed.id)} className="w-full py-2 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-lg hover:bg-blue-100">
                             DISCHARGE
@@ -352,15 +359,23 @@ const AdminPanel = () => {
 
         </div>
 
-        {/* INVENTORY PANEL (Kept from original) */}
+
         <div className="space-y-6">
           <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 border-b pb-4">
             <Package size={16} /> Resource Inventory
           </h2>
           <div className="bg-white p-8 rounded-3xl border shadow-sm space-y-8">
-            <InventoryControl label="Ventilators" current={8} total={20} />
+            <InventoryControl 
+                label="Ventilators" 
+                current={20 - beds.filter(b => b.ventilator_in_use).length} 
+                total={20} 
+            />
             <InventoryControl label="Oxygen Cylinders" current={45} total={50} />
-            <InventoryControl label="Ambulances" current={6} total={10} />
+            <InventoryControl 
+                label="Ambulances" 
+                current={ambulances.filter(a => a.status === 'IDLE').length} 
+                total={ambulances.length || 10} 
+            />
             <div className="pt-4 border-t">
                 <button className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] font-black text-gray-400 hover:border-indigo-300 hover:text-indigo-400 transition-all">
                     + REQUEST SUPPLIES
@@ -400,4 +415,3 @@ const InventoryControl = ({ label, current, total }: any) => (
 );
 export default AdminPanel;
 
-// ... InventoryControl stays the same ...

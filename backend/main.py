@@ -12,20 +12,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-# Local Imports
+
 from database import engine, get_db
 import models
 
-# pip install langchain-google-genai
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
-# Initialize database tables
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="PHRELIS Hospital OS")
 
-# CORS Setup - Essential for Frontend (3000) to talk to Backend (8000)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -34,11 +33,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- AI Agent ---
+
 class MedicalAgent:
     def __init__(self):
         try:
-            # Note: Ensure GOOGLE_API_KEY is in your environment variables
+
             self.llm = ChatGoogleGenerativeAI(model="gemini-pro")
             self.active = True
         except:
@@ -55,7 +54,7 @@ class MedicalAgent:
 
 ai_agent = MedicalAgent()
 
-# --- Connection Manager for WebSockets ---
+# Connection Manager for WebSockets 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -77,7 +76,6 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            # simple echo or keep-alive
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
@@ -94,7 +92,7 @@ class TriageRequest(BaseModel):
     vitals: Optional[dict] = {}
 
 class AmbulanceRequest(BaseModel):
-    severity: str # "HIGH" (ICU) or "LOW" (ER)
+    severity: str 
     location: str
     eta: int
 
@@ -104,13 +102,13 @@ class StaffClockIn(BaseModel):
 class StaffAssign(BaseModel):
     staff_id: str
     bed_id: str
-    role: str # "Primary Nurse" or "Attending Physician"
+    role: str 
 
 class TaskUpdate(BaseModel):
     task_id: int
     status: str
 
-# --- Admin ERP Endpoints ---
+#  Admin ERP Endpoints 
 
 @app.post("/api/erp/admit")
 async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)):
@@ -128,15 +126,28 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
     bed.is_occupied = True
     bed.patient_name = request.patient_name
     bed.condition = request.condition
-    # Note: We do NOT change bed.type here. The bed type is physical and fixed.
+
     
     if hasattr(bed, 'age'): 
         bed.patient_age = request.age
     
+    # 4. Create History Record
+    new_record = models.PatientRecord(
+        id=str(uuid.uuid4()),
+        esi_level=3, # Default for direct admission
+        acuity="Admitted",
+        symptoms=["Direct Admission"],
+        timestamp=datetime.utcnow(),
+        patient_name=request.patient_name,
+        patient_age=request.age,
+        condition=request.condition
+    )
+    db.add(new_record)
+
     db.commit()
     db.refresh(bed)
     
-    # 4. Notify the Dashboard to refresh the Heatmap immediately
+
     await manager.broadcast({"type": "REFRESH_RESOURCES"})
     
     return {"message": f"Patient admitted to {bed.id}", "status": "success"}
@@ -151,21 +162,32 @@ def list_beds(db: Session = Depends(get_db)):
 async def discharge(bed_id: str, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
     if bed:
+        # Update History Record (Find latest record for this patient)
+        if bed.patient_name:
+            history_record = db.query(models.PatientRecord).filter(
+                models.PatientRecord.patient_name == bed.patient_name,
+                models.PatientRecord.discharge_time == None
+            ).order_by(models.PatientRecord.timestamp.desc()).first()
+            
+            if history_record:
+                history_record.discharge_time = datetime.utcnow()
+
         bed.is_occupied = False
         bed.patient_name = None
         bed.patient_age = None
         bed.condition = None
+        bed.ventilator_in_use = False
         db.commit()
         await manager.broadcast({"type": "REFRESH_RESOURCES"})
         return {"status": "success"}
     raise HTTPException(status_code=404, detail="Bed not found")
 
-# --- Analytics & Triage Endpoints ---
+
 
 @app.post("/api/triage/assess")
 async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
-    # Calculate ESI Level (Mock logic for now, using AI usually)
-    level = 3 # Default
+
+    level = 3 
     if "chest pain" in request.symptoms or "stroke" in request.symptoms:
         level = 1
     elif "fever" in request.symptoms:
@@ -175,13 +197,25 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     
     bed_type = "ICU" if level <= 2 else "ER"
     
+    # Ventilator Logic
+    spo2 = request.vitals.get("spo2", 100)
+    heart_rate = request.vitals.get("heart_rate", 80)
+    ventilator_needed = False
+    
+    if spo2 < 60 and heart_rate < 60:
+        ventilator_needed = True
+        acuity_text += " (Ventilator Required)"
+    
     # 1. Save to History Table (PatientRecord)
     new_record = models.PatientRecord(
         id=str(uuid.uuid4()),
         esi_level=level,
         acuity=acuity_text,
         symptoms=request.symptoms,
-        timestamp=datetime.utcnow()
+        timestamp=datetime.utcnow(),
+        patient_name="Unknown Patient", # Triage doesn't have name
+        patient_age=None,
+        condition=f"Triaged: {acuity_text}"
     )
     db.add(new_record)
 
@@ -196,15 +230,16 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     assigned_id = None
     if bed:
         bed.is_occupied = True
+        bed.patient_name = "Unknown Patient"
         bed.condition = f"Triaged: {acuity_text}"
         bed.admission_time = datetime.utcnow()
+        bed.ventilator_in_use = ventilator_needed
         assigned_id = bed.id
     else:
         assigned_id = "WAITING_LIST"
 
     db.commit()
 
-    # Broadcast to dashboard
     await manager.broadcast({
         "type": "NEW_ADMISSION", 
         "bed_id": assigned_id, 
@@ -220,7 +255,6 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/history/day/{target_date}")
 def get_history_by_day(target_date: date, db: Session = Depends(get_db)):
-    # func.date extracts just the YYYY-MM-DD part from the timestamp
     return db.query(models.PatientRecord).filter(
         func.date(models.PatientRecord.timestamp) == target_date
     ).order_by(models.PatientRecord.timestamp.desc()).all()
@@ -235,6 +269,7 @@ def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
         "id": bed.id,
         "type": bed.type,
         "is_occupied": bed.is_occupied,
+        "ventilator_in_use": bed.ventilator_in_use,
         "details": {
             "name": bed.patient_name if bed.is_occupied else "Empty",
             "age": bed.patient_age if bed.is_occupied else None,
@@ -247,7 +282,7 @@ def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(db: Session = Depends(get_db)):
-    # Helper to count occupied beds by type
+
     def get_count(unit_type: str):
         return db.query(models.BedModel).filter(
             models.BedModel.type == unit_type, 
@@ -261,6 +296,11 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     
     total_beds = db.query(models.BedModel).count() or 190
 
+    # Resource Usage
+    vents_in_use = db.query(models.BedModel).filter(models.BedModel.ventilator_in_use == True).count()
+    amb_total = db.query(models.Ambulance).count()
+    amb_avail = db.query(models.Ambulance).filter(models.Ambulance.status == "IDLE").count()
+
     return {
         "occupancy": {
             "ER": er_occ, 
@@ -273,9 +313,12 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
             "occupied": er_occ + icu_occ + wards_occ + surgery_occ,
             "available": total_beds - (er_occ + icu_occ + wards_occ + surgery_occ)
         },
-        # ... rest of your stats
+        "resources": {
+            "Ventilators": {"total": 20, "in_use": vents_in_use},
+            "Ambulances": {"total": amb_total, "available": amb_avail}
+        }
     }
-# --- Ambulance System ---
+# Ambulance System 
 
 @app.get("/api/ambulances")
 def list_ambulances(db: Session = Depends(get_db)):
@@ -333,11 +376,11 @@ def reset_ambulance(ambulance_id: str, db: Session = Depends(get_db)):
         return {"status": "success", "message": f"Ambulance {ambulance_id} returned to station."}
     raise HTTPException(status_code=404, detail="Ambulance not found")
 
-# --- Staff & Task Management ---
+# Staff & Task Management 
 
 @app.get("/api/staff")
 def get_staff(db: Session = Depends(get_db)):
-    # Calculate live totals for the department view
+
     total_nurses = db.query(models.Staff).filter(models.Staff.role == "Nurse", models.Staff.is_clocked_in == True).count()
     total_doctors = db.query(models.Staff).filter(models.Staff.role == "Doctor", models.Staff.is_clocked_in == True).count()
     
@@ -361,26 +404,23 @@ def clock_staff(request: StaffClockIn, db: Session = Depends(get_db)):
 
 @app.post("/api/staff/assign")
 def assign_staff(request: StaffAssign, db: Session = Depends(get_db)):
-    # 1. Load Balancing Check (Acuity Based)
+
     if request.role == "Primary Nurse":
-        # Check current load
+
         current_load = db.query(models.BedAssignment).filter(
             models.BedAssignment.staff_id == request.staff_id,
             models.BedAssignment.is_active == True
         ).count()
-        
-        # Check if target bed is critical (ICU or High Acuity)
+
         target_bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).first()
         is_critical = target_bed.type == "ICU" or (target_bed.condition and "Critical" in target_bed.condition)
-        
-        # Max 3 patients if one is critical, else max 6
-        # This is a simplified implementation of the "Acuity-Based" Assignment
-        if is_critical and current_load >= 2: # 1 Critical + 2 others = 3 max
+
+        if is_critical and current_load >= 2: 
              raise HTTPException(status_code=400, detail="Load Limit Reached: Nurse has critical patient load.")
         if current_load >= 6:
              raise HTTPException(status_code=400, detail="Load Limit Reached: Max 6 patients per nurse.")
 
-    # 2. Deactivate previous assignment for this bed/role combo if exists
+
     existing = db.query(models.BedAssignment).filter(
         models.BedAssignment.bed_id == request.bed_id,
         models.BedAssignment.assignment_type == request.role,
@@ -466,7 +506,7 @@ def seed_db():
         db.add_all(staff)
         db.commit()
 
-# --- Weather Service ---
+
 class WeatherService:
     @staticmethod
     async def get_weather_coefficient() -> dict:
@@ -503,11 +543,11 @@ async def predict_inflow(db: Session = Depends(get_db)):
     for i in range(1, 13):
         h = (current_hour + i) % 24
         
-        # Fixed Bimodal Gaussian logic: Morning (10am) and Evening (8pm) peaks
+
         morning_peak = 18 * math.exp(-((h - 10)**2) / 6) 
         evening_peak = 14 * math.exp(-((h - 20)**2) / 5)
         
-        # Base inflow is now purely mathematical (noise removed)
+ 
         base_inflow = 4 + morning_peak + evening_peak
         
         predicted_count = int(base_inflow * w_mult * saturation_factor)

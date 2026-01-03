@@ -5,7 +5,7 @@ from database import Base
 class BedModel(Base):
     __tablename__ = "beds"
     
-    id = Column(String, primary_key=True, index=True) # e.g., ICU-1
+    id = Column(String, primary_key=True, index=True) #  ICU-1
     type = Column(String)                             # ICU or ER
     is_occupied = Column(Boolean, default=False)
     
@@ -17,8 +17,9 @@ class BedModel(Base):
     # Snapshot of vitals at time of admission
     vitals_snapshot = Column(String, nullable=True) 
     admission_time = Column(DateTime, default=datetime.utcnow)
+    ventilator_in_use = Column(Boolean, default=False)
     
-    # Critical Care Equipment
+
 
 class PredictionHistory(Base):
     __tablename__ = "prediction_history"
@@ -34,7 +35,7 @@ class PredictionHistory(Base):
 class Ambulance(Base):
     __tablename__ = "ambulances"
     
-    id = Column(String, primary_key=True, index=True) # e.g., AMB-01
+    id = Column(String, primary_key=True, index=True) #  AMB-01
     status = Column(String, default="IDLE")           # IDLE, DISPATCHED, RETURNING, MAINTENANCE
     location = Column(String, default="Station")      # Current location description
     assigned_patient_id = Column(String, nullable=True)
@@ -48,22 +49,28 @@ class PatientRecord(Base):
     acuity = Column(String)
     symptoms = Column(JSON)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    # New fields for history integration
+    patient_name = Column(String, nullable=True)
+    patient_age = Column(Integer, nullable=True)
+    condition = Column(String, nullable=True)
+    discharge_time = Column(DateTime, nullable=True)
 
 class Department(Base):
     __tablename__ = "departments"
     
-    id = Column(String, primary_key=True) # e.g., "General", "ICU", "ER"
+    id = Column(String, primary_key=True) # "General", "ICU", "ER"
     total_nurses_on_shift = Column(Integer, default=0)
     total_doctors_on_shift = Column(Integer, default=0)
 
 class Staff(Base):
     __tablename__ = "staff"
     
-    id = Column(String, primary_key=True) # e.g., S-101
+    id = Column(String, primary_key=True) # S-101
     name = Column(String)
     role = Column(String) # "Nurse", "Doctor"
     is_clocked_in = Column(Boolean, default=False)
-    department_id = Column(String, nullable=True) # Link to Department
+    department_id = Column(String, nullable=True) 
 
 class BedAssignment(Base):
     __tablename__ = "bed_assignments"

@@ -1,10 +1,9 @@
-# backend/seed.py
+
 from database import SessionLocal, engine, Base
 from models import BedModel
 
 def seed_beds():
-    # STEP 1: Create the tables if they don't exist
-    # This fixes the "no such table: beds" error
+
     print("Initializing database tables...")
     Base.metadata.create_all(bind=engine)
 
