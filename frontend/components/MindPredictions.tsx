@@ -1,121 +1,117 @@
+
+
+
+
 "use client";
 
-import React, { useState } from 'react';
-import { CloudRain, Calendar, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Brain, Thermometer, TrendingUp, Activity, Clock, ShieldAlert, CheckCircle2 } from 'lucide-react';
+const TOTAL_BEDS = 60;
+const MindPredictions = () => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-interface PredictionResult {
-  predicted_inflow: number;
-  risk_level: string;
-  contributing_factors: string[];
-}
+  useEffect(() => {
+    const fetchModel = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/predict-inflow', { method: 'POST' });
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error("Sync Failure:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchModel();
+    const interval = setInterval(fetchModel, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
-const MindPredictions: React.FC = () => {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [weather, setWeather] = useState("Clear");
-  const [event, setEvent] = useState("");
-  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const handlePredict = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('http://localhost:8000/api/predict-inflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date,
-          weather_condition: weather,
-          local_event: event || null
-        })
-      });
-      const data = await res.json();
-      setPrediction(data);
-    } catch (err) {
-      console.error("Prediction failed", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loading) return <div className="p-12 text-center animate-pulse text-indigo-400 font-mono">CALIBRATING HEURISTIC ENGINE...</div>;
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
-      <h2 className="text-xl font-bold mb-4 text-gray-800">The "Mind": Inflow Forecaster</h2>
-      
-      <div className="space-y-4">
+    <div className="bg-slate-950 text-slate-200 p-8 rounded-3xl border border-slate-800 shadow-2xl">
+      <div className="flex justify-between items-start mb-10">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Date</label>
-          <input 
-            type="date" 
-            value={date} 
-            onChange={(e) => setDate(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-          />
+          <h2 className="text-2xl font-black tracking-tighter flex items-center gap-3">
+            <Brain className="text-indigo-500 w-8 h-8" /> 
+            HEURISTIC INFLOW ENGINE
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">Weighted Gaussian modeling with Systemic Saturation feedback</p>
         </div>
         
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Weather Forecast</label>
-          <select 
-            value={weather} 
-            onChange={(e) => setWeather(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-          >
-            <option>Clear</option>
-            <option>Rain</option>
-            <option>Snow</option>
-            <option>Heatwave</option>
-            <option>Cold Snap</option>
-          </select>
+        {/* Confidence Badge */}
+        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-4 py-1.5 rounded-full">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          <span className="text-emerald-400 text-xs font-bold font-mono tracking-widest">
+            {data?.confidence_score}% CONFIDENCE
+          </span>
         </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Local Event (Optional)</label>
-          <input 
-            type="text" 
-            placeholder="e.g. Marathon, Festival"
-            value={event}
-            onChange={(e) => setEvent(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-          />
-        </div>
-        
-        <button 
-          onClick={handlePredict}
-          disabled={loading}
-          className="w-full flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-        >
-          {loading ? 'Analyzing...' : 'Predict Inflow'}
-        </button>
       </div>
 
-      {prediction && (
-        <div className="mt-6 p-4 bg-gray-50 rounded-md border border-gray-200">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-medium text-gray-500">Predicted Inflow</span>
-            <span className="text-2xl font-bold text-gray-900">{prediction.predicted_inflow} Patients</span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 relative overflow-hidden">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">6H Forecast</p>
+          <div className="flex items-baseline gap-3 text-white">
+            <span className="text-7xl font-black">{data?.total_predicted_inflow}</span>
+            <TrendingUp className="text-emerald-400 w-6 h-6" />
           </div>
-          
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-              prediction.risk_level === 'Critical' ? 'bg-red-100 text-red-800' :
-              prediction.risk_level === 'High' ? 'bg-orange-100 text-orange-800' :
-              'bg-green-100 text-green-800'
-            }`}>
-              {prediction.risk_level} Risk
-            </span>
-          </div>
-          
-          {prediction.contributing_factors.length > 0 && (
-            <div className="mt-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase">Factors:</p>
-              <ul className="list-disc pl-4 text-sm text-gray-600">
-                {prediction.contributing_factors.map((f, i) => (
-                  <li key={i}>{f}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <p className="text-xs text-slate-400 mt-4 font-medium italic">High-accuracy arrival projection</p>
         </div>
-      )}
+
+        <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Risk Factors</p>
+          <div className="space-y-4">
+             {/* Weather Factor */}
+             <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-400">Weather Multiplier</span>
+                <span className="text-indigo-400 font-bold">{data?.weather_impact.multiplier}x</span>
+             </div>
+             {/* Saturation Factor */}
+             <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-400">Systemic Inertia</span>
+                <span className="text-amber-400 font-bold">+{data?.saturation_impact}%</span>
+             </div>
+          </div>
+          <div className="mt-6 p-2 bg-indigo-500/10 rounded border border-indigo-500/20 text-[10px] text-indigo-300">
+             {data?.weather_impact.reason}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Surge Readiness</p>
+          <div className={`text-3xl font-black ${data?.total_predicted_inflow > 120 ? 'text-rose-500' : 'text-emerald-400'}`}>
+              {data?.total_predicted_inflow > 120 ? 'CRITICAL' : 'STABLE'}
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-[11px] text-slate-400">
+             <ShieldAlert className="w-4 h-4 text-amber-500" />
+             Based on {TOTAL_BEDS} bed capacity
+          </div>
+        </div>
+      </div>
+
+      {/* The Gaussian Distribution Graph */}
+      <div className="mt-12">
+        <p className="text-[10px] font-bold text-slate-500 uppercase mb-8 flex items-center gap-2 tracking-widest">
+          <Clock className="w-4 h-4" /> Bimodal Stochastic Curve
+        </p>
+        <div className="flex items-end justify-between gap-4 h-40">
+          {data?.forecast.map((item: any, i: number) => (
+            <div key={i} className="flex-1 flex flex-col items-center gap-3 group">
+              <div 
+                className="w-full bg-indigo-500/20 border-t-2 border-indigo-500/50 rounded-t-lg transition-all duration-700 group-hover:bg-indigo-600 relative"
+                style={{ height: `${(item.inflow / (data.total_predicted_inflow / 2)) * 100}%` }}
+              >
+                <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-black text-white opacity-0 group-hover:opacity-100">
+                  {item.inflow}
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-500 font-mono">{item.hour}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };
