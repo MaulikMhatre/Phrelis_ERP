@@ -17,8 +17,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-gray-50 min-h-screen flex flex-col`}>
+    // Add suppressHydrationWarning here to handle extension-injected attributes
+    <html lang="en" suppressHydrationWarning>
+      <body 
+        className={`${inter.className} bg-gray-50 min-h-screen flex flex-col`}
+        suppressHydrationWarning
+      >
         <GlobalAlertBanner />
         <Navbar />
         <main className="flex-grow container mx-auto px-4 py-8">

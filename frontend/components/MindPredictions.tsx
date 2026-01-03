@@ -2,6 +2,64 @@
 
 
 
+// "use client";
+
+// import React, { useState, useEffect } from 'react';
+// import { Brain, Thermometer, TrendingUp, Activity, Clock, ShieldAlert, CheckCircle2 } from 'lucide-react';
+// const TOTAL_BEDS = 60;
+// const MindPredictions = () => {
+//   const [data, setData] = useState<any>(null);
+//   const [loading, setLoading] = useState(true);
+
+//   useEffect(() => {
+//     const fetchModel = async () => {
+//       try {
+//         const res = await fetch('http://localhost:8000/api/predict-inflow', { method: 'POST' });
+//         const json = await res.json();
+//         setData(json);
+//       } catch (err) {
+//         console.error("Sync Failure:", err);
+//       } finally {
+//         setLoading(false);
+//       }
+//     };
+//     fetchModel();
+//     const interval = setInterval(fetchModel, 60000);
+//     return () => clearInterval(interval);
+//   }, []);
+
+//   if (loading) return <div className="p-12 text-center animate-pulse text-indigo-400 font-mono">CALIBRATING HEURISTIC ENGINE...</div>;
+
+//   return (
+//   <div className="p-6 bg-white rounded-3xl border-2 border-slate-100 shadow-sm">
+//     <h3 className="text-xs font-black text-slate-400 uppercase mb-4">Inflow Forecast</h3>
+    
+//     {/* Use Optional Chaining (?.) to prevent the crash */}
+//     <div className="flex items-center gap-2 mb-4">
+//       <span className="text-lg font-bold">
+//         Impact Multiplier: {data?.weather_impact?.multiplier || "1.0"}x
+//       </span>
+//       <span className="text-xs text-slate-400">
+//         ({data?.weather_impact?.reason || "Normal Conditions"})
+//       </span>
+//     </div>
+
+//     {/* Ensure forecast exists before mapping */}
+//     <div className="h-40 flex items-end gap-2">
+//       {data?.forecast?.map((item: any, i: number) => (
+//         <div 
+//           key={i} 
+//           style={{ height: `${(item.inflow / 30) * 100}%` }}
+//           className="flex-grow bg-indigo-500 rounded-t-md hover:bg-indigo-600 transition-all"
+//           title={`${item.hour}: ${item.inflow} patients`}
+//         />
+//       ))}
+//     </div>
+//   </div>
+// );
+// };
+
+// export default MindPredictions;
 "use client";
 
 import React, { useState, useEffect } from 'react';

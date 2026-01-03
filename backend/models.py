@@ -6,10 +6,12 @@ from database import Base
 class BedModel(Base):
     __tablename__ = "beds"
     id = Column(String, primary_key=True, index=True)
-    type = Column(String)
+    type = Column(String)  # ICU or ER
     is_occupied = Column(Boolean, default=False)
-    patient_id = Column(String, nullable=True)
-    version = Column(Integer, default=1)
+    patient_name = Column(String, nullable=True)
+    patient_age = Column(Integer, nullable=True)
+    condition = Column(String, nullable=True)
+    vitals_snapshot = Column(String, nullable=True)
 
 class PredictionHistory(Base):
     __tablename__ = "prediction_history"
