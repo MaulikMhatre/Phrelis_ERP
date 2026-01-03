@@ -18,8 +18,8 @@ const Navbar = () => {
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Triage Portal', href: '/triage', icon: Stethoscope },
     { name: 'Analytics', href: '/predictions', icon: LineChart },
-    { name: 'ERP Admin', href: '/admin', icon: Settings }, // NEW: ERP Management
-   
+    { name: 'ERP Admin', href: '/admin', icon: Settings },
+    { name: 'History', href: '/history', icon: Clock }, // ADDED: History Route
   ];
 
   return (
@@ -33,8 +33,12 @@ const Navbar = () => {
               <Activity className="w-6 h-6 text-white" />
             </div>
             <div>
-              <span className="text-xl font-black tracking-tighter uppercase">Phrelis <span className="text-blue-500">OS</span></span>
-              <p className="text-[10px] font-bold text-slate-500 tracking-[0.2em] -mt-1 uppercase">Enterprise ERP</p>
+              <span className="text-xl font-black tracking-tighter uppercase">
+                Phrelis <span className="text-blue-500">OS</span>
+              </span>
+              <p className="text-[10px] font-bold text-slate-500 tracking-[0.2em] -mt-1 uppercase">
+                Enterprise ERP
+              </p>
             </div>
           </div>
           

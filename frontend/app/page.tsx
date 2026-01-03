@@ -5,12 +5,11 @@
 // import LiveHeatmap from '@/components/LiveHeatmap';
 // import ResourceInventory from '@/components/ResourceInventory';
 // import MindPredictions from '@/components/MindPredictions';
-// import { Activity, Users, AlertCircle, BedDouble, HeartPulse, Zap, Settings } from 'lucide-react';
+// import { Activity, Users, AlertCircle, BedDouble, HeartPulse, Settings } from 'lucide-react';
 
 // const DashboardPage = () => {
 //   const [data, setData] = useState<any>(null);
 //   const [criticalAlert, setCriticalAlert] = useState<any>(null);
-//   const [isSimulating, setIsSimulating] = useState(false);
 //   const [error, setError] = useState(false);
 
 //   const fetchData = useCallback(async () => {
@@ -32,8 +31,8 @@
 //             ambulances: json.resources.Ambulances || { total: 0, available: 0 }
 //         },
 //         system_status: {
-//             diversion_active: (json.bed_stats?.available === 0) || isSimulating,
-//             occupancy_rate: isSimulating ? 98 : Math.round(((json.bed_stats?.occupied || 0) / (json.bed_stats?.total || 1)) * 100)
+//             diversion_active: (json.bed_stats?.available === 0),
+//             occupancy_rate: Math.round(((json.bed_stats?.occupied || 0) / (json.bed_stats?.total || 1)) * 100)
 //         }
 //       });
 //       setError(false);
@@ -41,7 +40,7 @@
 //       console.error("Fetch Error:", err);
 //       setError(true);
 //     }
-//   }, [isSimulating]);
+//   }, []);
 
 //   useEffect(() => {
 //     fetchData();
@@ -74,7 +73,7 @@
 //   if (!data) return <div className="p-10 text-center animate-pulse font-mono tracking-widest">BOOTING PHRELIS OS...</div>;
 
 //   return (
-//     <div className={`min-h-screen transition-all duration-700 p-8 ${isSimulating ? 'bg-slate-950 text-slate-100' : 'bg-gray-50'}`}>
+//     <div className="min-h-screen transition-all duration-700 p-8 bg-gray-50">
       
 //       {criticalAlert && (
 //         <div className="bg-red-600 text-white p-6 rounded-2xl shadow-2xl animate-bounce mb-8 border-4 border-white">
@@ -96,11 +95,6 @@
 //             <Settings size={12} /> OPEN ERP ADMIN
 //           </Link>
 //         </div>
-
-//         <button onClick={() => setIsSimulating(!isSimulating)} className={`px-8 py-3 rounded-full font-black transition-all shadow-xl active:scale-95 ${isSimulating ? 'bg-red-500 text-white' : 'bg-white border-2'}`}>
-//           <Zap size={20} className="inline mr-2" />
-//           {isSimulating ? 'STOP STRESS TEST' : 'START STRESS TEST'}
-//         </button>
 //       </header>
 
 //       {/* KPI Section */}
@@ -108,17 +102,17 @@
 //         <KPIBox label="Occupancy" val={`${data.system_status?.occupancy_rate || 0}%`} color="blue" />
 //         <KPIBox label="Nurse Ratio" val={data.staff_ratio || "1:0"} color="indigo" />
 //         <KPIBox label="Available Beds" val={data.bed_stats?.available || 0} color="teal" />
-//         <div className={`p-6 rounded-3xl border-4 transition-all ${isSimulating || data.system_status?.diversion_active ? 'bg-red-600 text-white border-red-400' : 'bg-emerald-500 text-white border-emerald-400'}`}>
+//         <div className={`p-6 rounded-3xl border-4 transition-all ${data.system_status?.diversion_active ? 'bg-red-600 text-white border-red-400' : 'bg-emerald-500 text-white border-emerald-400'}`}>
 //             <AlertCircle className="w-8 h-8 mb-2" />
-//             <p className="text-2xl font-black uppercase tracking-tighter italic">{isSimulating || data.system_status?.diversion_active ? 'DIVERSION' : 'NORMAL'}</p>
+//             <p className="text-2xl font-black uppercase tracking-tighter italic">{data.system_status?.diversion_active ? 'DIVERSION' : 'NORMAL'}</p>
 //         </div>
 //       </div>
 
 //       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-//         <LiveHeatmap occupancy={data.occupancy} isSimulating={isSimulating} />
+//         <LiveHeatmap occupancy={data.occupancy} />
 //         <div className="space-y-10">
 //           <ResourceInventory resources={data.resources} />
-//           <MindPredictions isSimulating={isSimulating} />
+//           <MindPredictions />
 //         </div>
 //       </div>
 //     </div>
@@ -133,6 +127,10 @@
 // );
 
 // export default DashboardPage;
+
+
+
+
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
