@@ -8,7 +8,9 @@ import {
   LineChart, 
   Activity, 
   Settings, 
-  Clock 
+  Clock,
+  Network,
+  Users
 } from 'lucide-react';
 
 const Navbar = () => {
@@ -16,34 +18,36 @@ const Navbar = () => {
 
   const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Triage Portal', href: '/triage', icon: Stethoscope },
     { name: 'Analytics', href: '/predictions', icon: LineChart },
-    { name: 'ERP Admin', href: '/admin', icon: Settings },
-    { name: 'History', href: '/history', icon: Clock }, // ADDED: History Route
+    { name: 'Triage', href: '/triage', icon: Stethoscope },
+    { name: 'Admin', href: '/admin', icon: Settings },
+    { name: 'History', href: '/history', icon: Clock },
+    { name: 'Staff', href: '/staff', icon: Users },
+    { name: 'Sentinel', href: '/sentinel', icon: Network },
   ];
 
   return (
-    <nav className="sticky top-0 z-40 bg-black/80 backdrop-blur-md text-white border-b border-white/10 shadow-2xl supports-[backdrop-filter]:bg-black/60">
-      <div className="container mx-auto px-6">
+    <nav className="sticky top-0 z-40 bg-black/90 backdrop-blur-xl text-white border-b border-white/5 shadow-2xl">
+      <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-20">
           
           {/* Logo Section */}
-          <div className="flex items-center gap-3 group cursor-pointer">
-            <div className="p-2.5 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-all duration-300 group-hover:scale-105">
-              <Activity className="w-6 h-6 text-white" />
+          <div className="flex items-center gap-4 group cursor-pointer pr-8 border-r border-white/10">
+            <div className="p-2 bg-indigo-600 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.5)] group-hover:shadow-[0_0_25px_rgba(79,70,229,0.8)] transition-all duration-300">
+              <Activity className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <span className="text-xl font-black tracking-tighter uppercase bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
-                Phrelis <span className="text-indigo-400">OS</span>
+            <div className="flex flex-col">
+              <span className="text-lg font-black tracking-tighter uppercase leading-none">
+                Phrelis <span className="text-indigo-500">OS</span>
               </span>
-              <p className="text-[10px] font-bold text-slate-500 tracking-[0.2em] -mt-1 uppercase group-hover:text-indigo-400 transition-colors">
-                Enterprise ERP
-              </p>
+              <span className="text-[9px] font-bold text-slate-500 tracking-[0.3em] uppercase">
+                v2.4.0
+              </span>
             </div>
           </div>
           
           {/* Navigation Items */}
-          <div className="flex items-center space-x-1">
+          <div className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href;
               const Icon = item.icon;
@@ -51,19 +55,18 @@ const Navbar = () => {
                 <Link 
                   key={item.name} 
                   href={item.href}
-                  className={`relative flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-widest transition-all duration-300 overflow-hidden group/link ${
+                  className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all duration-200 group/link ${
                     isActive 
-                      ? 'text-white' 
-                      : 'text-slate-400 hover:text-white'
+                      ? 'text-white bg-white/10 border border-white/5' 
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
                   }`}
                 >
-                  {isActive && (
-                    <span className="absolute inset-0 bg-indigo-600/20 border border-indigo-500/50 rounded-full shadow-[0_0_20px_rgba(99,102,241,0.3)]" />
-                  )}
-                  <span className={`absolute inset-0 bg-white/5 opacity-0 group-hover/link:opacity-100 transition-opacity rounded-full ${isActive ? 'hidden' : ''}`} />
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400' : 'text-slate-600 group-hover/link:text-indigo-400'} transition-colors`} />
+                  <span>{item.name}</span>
                   
-                  <Icon className={`w-4 h-4 relative z-10 transition-transform duration-300 group-hover/link:scale-110 ${isActive ? 'text-indigo-400' : 'text-slate-500 group-hover/link:text-indigo-400'}`} />
-                  <span className="relative z-10">{item.name}</span>
+                  {isActive && (
+                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 bg-indigo-500 rounded-full translate-y-2 shadow-[0_0_10px_#6366f1]"></span>
+                  )}
                 </Link>
               );
             })}

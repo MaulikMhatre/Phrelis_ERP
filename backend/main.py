@@ -108,6 +108,16 @@ class TaskUpdate(BaseModel):
     task_id: int
     status: str
 
+class EventCreate(BaseModel):
+    patient_id: str
+    event_type: str
+    details: Optional[str] = None
+
+class PredictionCreate(BaseModel):
+    prediction_text: str
+    target_department: str
+    predicted_delay_minutes: int
+
 #  Admin ERP Endpoints 
 
 @app.post("/api/erp/admit")
@@ -301,7 +311,17 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     amb_total = db.query(models.Ambulance).count()
     amb_avail = db.query(models.Ambulance).filter(models.Ambulance.status == "IDLE").count()
 
+    # Staff Ratio (Patients per Doctor)
+    total_doctors = db.query(models.Staff).filter(models.Staff.role == "Doctor", models.Staff.is_clocked_in == True).count()
+    total_patients = er_occ + icu_occ + wards_occ + surgery_occ
+    
+    ratio_str = "N/A"
+    if total_doctors > 0:
+        ratio = round(total_patients / total_doctors, 1)
+        ratio_str = f"1:{ratio}"
+
     return {
+        "staff_ratio": ratio_str,
         "occupancy": {
             "ER": er_occ, 
             "ICU": icu_occ, 
@@ -565,6 +585,114 @@ async def predict_inflow(db: Session = Depends(get_db)):
             "systemic_saturation": f"{round(saturation_factor, 2)}x"
         }
     }
+
+# --- Sentinel Flow Endpoints ---
+
+@app.post("/api/events")
+def log_event(event: EventCreate, db: Session = Depends(get_db)):
+    new_event = models.Event(
+        patient_id=event.patient_id,
+        event_type=event.event_type,
+        details=event.details,
+        timestamp=datetime.utcnow()
+    )
+    db.add(new_event)
+    db.commit()
+    return {"status": "success", "event_id": new_event.id}
+
+@app.get("/api/metrics/latency")
+def get_latency_metrics(db: Session = Depends(get_db)):
+    # Calculate average time between TRANSFER_START and TRANSFER_COMPLETE in last 24h
+    completed_transfers = db.query(models.Event).filter(
+        models.Event.event_type == "TRANSFER_COMPLETE"
+    ).order_by(models.Event.timestamp.desc()).limit(100).all()
+    
+    total_latency = 0
+    count = 0
+    
+    for end_event in completed_transfers:
+        # Find corresponding start event
+        start_event = db.query(models.Event).filter(
+            models.Event.patient_id == end_event.patient_id,
+            models.Event.event_type == "TRANSFER_START",
+            models.Event.timestamp < end_event.timestamp
+        ).order_by(models.Event.timestamp.desc()).first()
+        
+        if start_event:
+            delta = (end_event.timestamp - start_event.timestamp).total_seconds() / 60 # minutes
+            total_latency += delta
+            count += 1
+            
+    avg_latency = total_latency / count if count > 0 else 0
+    throughput = count 
+    latency_score = min(avg_latency * 2, 100) 
+    
+    return {
+        "latencyScore": latency_score,
+        "averageLatencyMinutes": avg_latency,
+        "throughputRate": throughput,
+        "isCritical": latency_score > 80 
+    }
+
+@app.get("/api/predictions")
+def get_predictions(db: Session = Depends(get_db)):
+    return db.query(models.PredictionLog).order_by(models.PredictionLog.timestamp.desc()).limit(10).all()
+
+@app.post("/api/predictions")
+def create_prediction(pred: PredictionCreate, db: Session = Depends(get_db)):
+    new_pred = models.PredictionLog(
+        prediction_text=pred.prediction_text,
+        target_department=pred.target_department,
+        predicted_delay_minutes=pred.predicted_delay_minutes,
+        timestamp=datetime.utcnow()
+    )
+    db.add(new_pred)
+    db.commit()
+    return {"status": "success"}
+
+def calculate_latency_score(db: Session):
+    completed_transfers = db.query(models.Event).filter(
+        models.Event.event_type == "TRANSFER_COMPLETE"
+    ).order_by(models.Event.timestamp.desc()).limit(20).all()
+    
+    if not completed_transfers: return 0
+    
+    total_latency = 0
+    count = 0
+    for end_event in completed_transfers:
+        start_event = db.query(models.Event).filter(
+            models.Event.patient_id == end_event.patient_id,
+            models.Event.event_type == "TRANSFER_START",
+            models.Event.timestamp < end_event.timestamp
+        ).order_by(models.Event.timestamp.desc()).first()
+        if start_event:
+            delta = (end_event.timestamp - start_event.timestamp).total_seconds() / 60
+            total_latency += delta
+            count += 1
+            
+    avg = total_latency / count if count > 0 else 0
+    return min(avg * 2, 100)
+
+@app.get("/api/alerts/active")
+def get_active_alerts(db: Session = Depends(get_db)):
+    alerts = []
+    
+    
+    latency = calculate_latency_score(db)
+    if latency > 80:
+        alerts.append({
+            "type": "FLOW_OBSTRUCTION", 
+            "message": "Latency threshold exceeded (Code Yellow).", 
+            "level": "Critical"
+        })
+    elif latency > 50:
+        alerts.append({
+            "type": "FLOW_WARNING", 
+            "message": "Transfer times degrading.", 
+            "level": "High"
+        })
+        
+    return {"alerts": alerts}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

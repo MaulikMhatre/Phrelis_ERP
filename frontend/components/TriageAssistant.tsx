@@ -8,6 +8,8 @@ interface TriageResult {
   recommended_actions: string[];
 }
 
+import { endpoints } from '@/utils/api';
+
 const TriageAssistant: React.FC = () => {
   const [symptoms, setSymptoms] = useState("");
   const [result, setResult] = useState<TriageResult | null>(null);
@@ -16,7 +18,7 @@ const TriageAssistant: React.FC = () => {
   const handleAssess = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/triage/assess', {
+      const res = await fetch(endpoints.triageAssess, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

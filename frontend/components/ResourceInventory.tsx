@@ -12,11 +12,10 @@ interface ResourceProps {
 }
 
 const ResourceInventory: React.FC<ResourceProps> = ({ resources, isSimulating }) => {
-  // Use optional chaining and default objects
   const v = resources?.Ventilators || { total: 20, in_use: 0 };
   const a = resources?.Ambulances || { total: 10, available: 0 };
 
-  // Simulation logic overrides
+
   const ventInUse = isSimulating ? Math.min(v.in_use + 8, v.total) : v.in_use;
   const ambAvailable = isSimulating ? Math.max(a.available - 4, 0) : a.available;
 

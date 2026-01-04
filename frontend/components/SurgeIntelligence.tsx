@@ -2,12 +2,14 @@
 import React, { useEffect, useState } from 'react';
 import { Timer, AlertTriangle, ShieldCheck } from 'lucide-react';
 
+import { endpoints } from '@/utils/api';
+
 export const SurgeIntelligence = () => {
   const [surge, setSurge] = useState<any>(null);
 
   useEffect(() => {
     const fetchSurge = async () => {
-      const res = await fetch('http://localhost:8000/api/predict/time-to-capacity');
+      const res = await fetch(endpoints.timeToCapacity);
       const data = await res.json();
       setSurge(data);
     };

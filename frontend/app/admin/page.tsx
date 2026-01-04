@@ -4,26 +4,29 @@ import Link from 'next/link';
 import { BedDouble, UserPlus, LogOut, ArrowLeft, Package, Plus, Minus, X, Activity, BrainCircuit, Ambulance, MapPin, Clock, AlertTriangle, Siren, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ResourceInventory from '@/components/ResourceInventory';
+import { endpoints } from '@/utils/api';
+import { useToast } from '@/context/ToastContext';
 
 const AdminPanel = () => {
+  const { toast } = useToast();
   const [beds, setBeds] = useState<any[]>([]);
   const [ambulances, setAmbulances] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- Ambulance Dispatch State ---
   const [dispatchForm, setDispatchForm] = useState({ severity: 'HIGH', location: '', eta: 10 });
   const [dispatchResult, setDispatchResult] = useState<any>(null);
 
-  // --- State for Admission Modal ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedBed, setSelectedBed] = useState<any | null>(null);
   const [patientData, setPatientData] = useState({ name: '', age: '', condition: 'Stable' });
 
+  const [dischargeBedId, setDischargeBedId] = useState<string | null>(null);
+
   const fetchERPData = async () => {
     try {
       const [bedsRes, ambRes] = await Promise.all([
-        fetch('http://localhost:8000/api/erp/beds'),
-        fetch('http://localhost:8000/api/ambulances')
+        fetch(endpoints.beds),
+        fetch(endpoints.ambulances)
       ]);
       const bedsData = await bedsRes.json();
       const ambData = await ambRes.json();
@@ -31,6 +34,7 @@ const AdminPanel = () => {
       setAmbulances(ambData);
     } catch (e) {
       console.error("ERP Load Failed", e);
+      toast("Failed to load ERP data", "error");
     } finally {
       setLoading(false);
     }
@@ -41,28 +45,46 @@ const AdminPanel = () => {
   const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://localhost:8000/api/ambulance/dispatch', {
+      const res = await fetch(endpoints.ambulanceDispatch, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dispatchForm)
       });
       const data = await res.json();
       setDispatchResult(data);
+      if (data.status === 'DISPATCHED') {
+        toast(`Ambulance dispatched to ${dispatchForm.location}`, "success");
+      } else {
+        toast(data.message, "warning");
+      }
       fetchERPData();
     } catch (e) {
       console.error("Dispatch Failed", e);
+      toast("Dispatch failed", "error");
     }
   };
 
   const resetAmbulance = async (id: string) => {
-    await fetch(`http://localhost:8000/api/ambulance/reset/${id}`, { method: 'POST' });
+    await fetch(endpoints.ambulanceReset(id), { method: 'POST' });
+    toast(`Ambulance ${id} returned to station`, "info");
     fetchERPData();
   };
 
-  const handleDischarge = async (bedId: string) => {
-    if (!confirm("Confirm discharge?")) return;
-    await fetch(`http://localhost:8000/api/erp/discharge/${bedId}`, { method: 'POST' });
-    fetchERPData();
+  const confirmDischarge = async () => {
+    if (!dischargeBedId) return;
+    try {
+      await fetch(endpoints.discharge(dischargeBedId), { method: 'POST' });
+      toast(`Patient discharged from ${dischargeBedId}`, "success");
+      fetchERPData();
+    } catch (e) {
+      toast("Discharge failed", "error");
+    } finally {
+      setDischargeBedId(null);
+    }
+  };
+
+  const handleDischarge = (bedId: string) => {
+    setDischargeBedId(bedId);
   };
 
   const openAdmitModal = (bed: any) => {
@@ -78,7 +100,7 @@ const AdminPanel = () => {
   const submitAdmission = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch(`http://localhost:8000/api/erp/admit`, {
+      const response = await fetch(endpoints.admit, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -91,10 +113,15 @@ const AdminPanel = () => {
 
       if (response.ok) {
         setIsModalOpen(false);
+        toast(`Patient admitted to ${selectedBed.id}`, "success");
         fetchERPData();
+      } else {
+        const err = await response.json();
+        toast(err.detail || "Admission failed", "error");
       }
     } catch (error) {
       console.error("Admission failed", error);
+      toast("Admission request failed", "error");
     }
   };
 
@@ -150,10 +177,8 @@ const AdminPanel = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
 
-          {/* LEFT COLUMN - DISPATCH & INVENTORY */}
           <div className="lg:col-span-4 space-y-8">
 
-            {/* DISPATCH PANEL */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -234,7 +259,6 @@ const AdminPanel = () => {
               </div>
             </motion.div>
 
-            {/* INVENTORY */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -379,10 +403,6 @@ const AdminPanel = () => {
               <div className="flex justify-between items-center mb-8">
                 <div>
                   <h2 className="text-2xl font-black text-white leading-none">PATIENT ADMISSION</h2>
-                  {/* <p className="text-indigo-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
-                    Assigning to Unit: <span className="text-white">{selectedBed.id}</span>
-                  </p> */}
                   <div className="text-indigo-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
                     Assigning to Unit: <span className="text-white">{selectedBed.id}</span>
@@ -459,6 +479,49 @@ const AdminPanel = () => {
                   AUTHORIZE ADMISSION <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {dischargeBedId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => setDischargeBedId(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-[#0a0a0a] rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-red-500/20 relative z-10 text-center"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <LogOut size={32} className="text-red-500" />
+              </div>
+              <h2 className="text-xl font-black text-white mb-2">Confirm Discharge?</h2>
+              <p className="text-slate-400 text-sm mb-8">
+                Are you sure you want to discharge the patient from <span className="text-white font-bold">{dischargeBedId}</span>? This action cannot be undone.
+              </p>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDischargeBedId(null)}
+                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 font-bold rounded-xl transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button 
+                  onClick={confirmDischarge}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-colors shadow-lg shadow-red-900/20"
+                >
+                  DISCHARGE
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

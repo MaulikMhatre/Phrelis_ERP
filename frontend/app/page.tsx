@@ -22,9 +22,8 @@ import {
   Binary,
 } from "lucide-react";
 
-/* ---------------------------------------------
-   DASHBOARD PAGE
----------------------------------------------- */
+import { endpoints, WS_BASE_URL } from '@/utils/api';
+
 
 export default function DashboardPage() {
   const [showLanding, setShowLanding] = useState(true);
@@ -33,23 +32,32 @@ export default function DashboardPage() {
   const [criticalAlert, setCriticalAlert] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [time, setTime] = useState(new Date());
+  const [surge, setSurge] = useState<any>(null);
+  const [stressScore, setStressScore] = useState<number>(0);
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/dashboard/stats");
+      const res = await fetch(endpoints.dashboardStats);
       const json = await res.json();
+      const surgeRes = await fetch(endpoints.timeToCapacity);
+      const surgeData = await surgeRes.json();
+      setSurge(surgeData);
 
       setData({
         ...json,
         system_status: {
-          diversion_active: json.bed_stats.available === 0 || isSimulating,
-          occupancy_rate: isSimulating
-            ? 98
-            : Math.round(
-                (json.bed_stats.occupied / json.bed_stats.total) * 100
-              ),
+          diversion_active: json.bed_stats.available === 0,
+          occupancy_rate: Math.round(
+            (json.bed_stats.occupied / json.bed_stats.total) * 100
+          ),
         },
       });
+      const occ = Math.round((json.bed_stats.occupied / json.bed_stats.total) * 100) / 100;
+      const vel = Math.min((surgeData?.velocity || 0) / 120, 1);
+      const ttc = 1 - Math.min((surgeData?.minutes_remaining || 0) / 120, 1);
+      const score = Math.round(100 * (0.5 * occ + 0.3 * vel + 0.2 * ttc));
+      setStressScore(score);
+      setIsSimulating(score >= 70);
     } catch (err) {
       console.error("Telemetry Sync Error", err);
     } finally {
@@ -63,7 +71,7 @@ export default function DashboardPage() {
     const poll = setInterval(fetchData, 3000);
     const clock = setInterval(() => setTime(new Date()), 1000);
 
-    const ws = new WebSocket("ws://localhost:8000/ws/vitals");
+    const ws = new WebSocket(`${WS_BASE_URL}/ws/vitals`);
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === "CRITICAL_VITALS") {
@@ -79,9 +87,6 @@ export default function DashboardPage() {
     };
   }, [fetchData]);
 
-  /* ---------------------------------------------
-     LANDING & LOADING STATES
-  ---------------------------------------------- */
 
   if (showLanding) {
     return <LandingPage onEnter={() => setShowLanding(false)} />;
@@ -100,9 +105,6 @@ export default function DashboardPage() {
     );
   }
 
-  /* ---------------------------------------------
-     MAIN LAYOUT
-  ---------------------------------------------- */
 
   return (
     <motion.div 
@@ -131,7 +133,16 @@ export default function DashboardPage() {
           <Header
             time={time}
             isSimulating={isSimulating}
-            toggleSim={() => setIsSimulating(!isSimulating)}
+            toggleSim={() => {
+              if (!data || !surge) return;
+              const occ = (data.system_status?.occupancy_rate || 0) / 100;
+              const vel = Math.min((surge?.velocity || 0) / 120, 1);
+              const ttc = 1 - Math.min((surge?.minutes_remaining || 0) / 120, 1);
+              const score = Math.round(100 * (0.5 * occ + 0.3 * vel + 0.2 * ttc));
+              setStressScore(score);
+              setIsSimulating(score >= 70);
+            }}
+            stressScore={stressScore}
           />
 
           <AnimatePresence>
@@ -171,11 +182,9 @@ export default function DashboardPage() {
   );
 }
 
-/* ---------------------------------------------
-   HEADER
----------------------------------------------- */
 
-const Header = ({ time, isSimulating, toggleSim }: any) => (
+
+const Header = ({ time, isSimulating, toggleSim, stressScore }: any) => (
   <header className="flex justify-between items-end">
     <div>
       <div className="flex items-center gap-4 mb-3">
@@ -201,14 +210,11 @@ const Header = ({ time, isSimulating, toggleSim }: any) => (
     >
       <div className={`absolute inset-0 bg-indigo-400/20 blur-xl transition-opacity duration-300 ${isSimulating ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`} />
       <Zap className={`w-5 h-5 relative z-10 ${isSimulating ? 'animate-pulse' : ''}`} />
-      <span className="relative z-10">{isSimulating ? "Terminate Stress" : "Stress Test"}</span>
+      <span className="relative z-10">{isSimulating ? `Stress: ${stressScore}` : "Evaluate Stress"}</span>
     </button>
   </header>
 );
 
-/* ---------------------------------------------
-   CRITICAL ALERT
----------------------------------------------- */
 
 const CriticalAlert = ({ message, onClose }: any) => (
   <div className="relative overflow-hidden bg-rose-950/20 border border-rose-500/30 rounded-[2rem] p-8 flex justify-between items-center shadow-[0_0_60px_rgba(225,29,72,0.1)] backdrop-blur-md">
@@ -236,14 +242,11 @@ const CriticalAlert = ({ message, onClose }: any) => (
   </div>
 );
 
-/* ---------------------------------------------
-   METRICS
----------------------------------------------- */
 
 const MetricsGrid = ({ data, isSimulating }: any) => (
   <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
     <Metric label="Capacity" value={`${data.system_status.occupancy_rate}%`} icon={<Activity />} />
-    <Metric label="Nurse Ratio" value={data.staff_ratio} icon={<Users />} />
+    <Metric label="Doctor Ratio" value={data.staff_ratio} icon={<Users />} />
     <Metric label="Free Beds" value={data.bed_stats.available} icon={<BedDouble />} />
 
     <div
@@ -287,19 +290,3 @@ const Metric = ({ label, value, icon }: any) => (
   </div>
 );
 
-/* ---------------------------------------------
-   SIDEBAR LINK (Keeping for reference if needed)
----------------------------------------------- */
-
-const SidebarLink = ({ icon, label, active = false }: any) => (
-  <div
-    className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition cursor-pointer ${
-      active
-        ? "bg-indigo-600 text-white shadow-xl"
-        : "text-slate-500 hover:bg-white/5 hover:text-slate-300"
-    }`}
-  >
-    {React.cloneElement(icon, { size: 22 })}
-    <span className="text-sm tracking-tight">{label}</span>
-  </div>
-);

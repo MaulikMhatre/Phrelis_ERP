@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Stethoscope, Heart, Activity, CheckCircle, AlertTriangle, ArrowRight, Activity as Pulse } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { endpoints } from '@/utils/api';
 
 interface TriageResponse {
   priority: number;
@@ -28,7 +29,7 @@ export default function TriagePage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/triage/assess', {
+      const res = await fetch(endpoints.triageAssess, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

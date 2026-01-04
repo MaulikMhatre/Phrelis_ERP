@@ -94,3 +94,21 @@ class Task(Base):
     priority = Column(String) # "Low", "Medium", "High", "Critical"
     status = Column(String, default="Pending") # "Pending", "Completed"
     completed_at = Column(DateTime, nullable=True)
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(String, index=True)
+    event_type = Column(String) 
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    details = Column(String, nullable=True)
+
+class PredictionLog(Base):
+    __tablename__ = "prediction_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    prediction_text = Column(String) 
+    target_department = Column(String) # ICU, ER
+    predicted_delay_minutes = Column(Integer)

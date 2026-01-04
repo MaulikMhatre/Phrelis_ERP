@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Brain, CloudLightning, Activity, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { endpoints } from '@/utils/api';
 
 interface ForecastItem {
   hour: string;
@@ -23,7 +24,7 @@ export default function AnalyticsPage() {
   const fetchPredictions = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8000/api/predict-inflow', {
+      const res = await fetch(endpoints.predictInflow, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

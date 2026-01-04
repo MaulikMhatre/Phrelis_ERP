@@ -4,6 +4,8 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import GlobalAlertBanner from "@/components/GlobalAlertBanner";
 
+import { ToastProvider } from "@/context/ToastContext";
+
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
@@ -17,17 +19,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // Add suppressHydrationWarning here to handle extension-injected attributes
     <html lang="en" suppressHydrationWarning>
       <body 
         className={`${inter.className} bg-gray-50 min-h-screen flex flex-col`}
         suppressHydrationWarning
       >
-        <GlobalAlertBanner />
-        <Navbar />
-        <main className="flex-grow w-full">
-          {children}
-        </main>
+        <ToastProvider>
+          <GlobalAlertBanner />
+          <Navbar />
+          <main className="flex-grow w-full">
+            {children}
+          </main>
+        </ToastProvider>
       </body>
     </html>
   );

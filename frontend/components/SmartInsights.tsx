@@ -9,12 +9,14 @@ interface Insight {
   impact: string;
 }
 
+import { endpoints } from '@/utils/api';
+
 const SmartInsights = ({ isSimulating }: { isSimulating: boolean }) => {
   const [insights, setInsights] = useState<Insight[]>([]);
 
   const fetchInsights = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/dashboard/insights');
+      const res = await fetch(endpoints.insights);
       const data = await res.json();
       setInsights(data.suggestions);
     } catch (e) {

@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Clock, Search, Activity, Calendar, ArrowLeft, Filter, AlertCircle, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { endpoints } from '@/utils/api';
 
-// Define the interface here so it's available to the component
 export interface HistoryRecord {
   id: string;
   timestamp: string;
@@ -23,16 +23,14 @@ export default function HistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Set default state to today's date in YYYY-MM-DD format
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        setError(null); // Reset error on new fetch
-        // Fetch from the date-specific endpoint we added to main.py
-        const res = await fetch(`http://localhost:8000/api/history/day/${selectedDate}`, { 
+        setError(null); 
+        const res = await fetch(endpoints.historyByDate(selectedDate), { 
           cache: 'no-store' 
         });
         
@@ -48,7 +46,7 @@ export default function HistoryPage() {
       }
     };
     fetchData();
-  }, [selectedDate]); // Re-fetch whenever the date is changed
+  }, [selectedDate]); 
 
   const filteredHistory = history.filter(item => 
     item.patient_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||

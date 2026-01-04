@@ -1,144 +1,3 @@
-// "use client";
-// import React, { useEffect, useState } from 'react';
-// import TriageAssistant from './TriageAssistant';
-// import LiveHeatmap from './LiveHeatmap';
-// import GoldenHourClock from './GoldenHourClock';
-// import ResourceInventory from './ResourceInventory';
-// import MindPredictions from './MindPredictions';
-// import Alerts from './Alerts';
-
-// interface DashboardData {
-//   occupancy: {
-//     ER: number;
-//     ICU: number;
-//     Surgery: number;
-//     Wards: number;
-//   };
-//   er_wait_time: {
-//     current: number;
-//     predicted_4h: number;
-//   };
-//   resources: {
-//     ventilators: { total: number; in_use: number };
-//     ambulances: { total: number; available: number };
-//   };
-// }
-
-// interface AlertData {
-//   alerts: {
-//     type: string;
-//     message: string;
-//     level: string;
-//   }[];
-// }
-
-// const Dashboard: React.FC = () => {
-//   const [data, setData] = useState<DashboardData | null>(null);
-//   const [alerts, setAlerts] = useState<AlertData | null>(null);
-//   const [loading, setLoading] = useState(true);
-
-//   const fetchData = async () => {
-//     try {
-//       // Fetch Dashboard Stats
-//       const statsRes = await fetch('http://localhost:8000/api/dashboard/stats');
-//       const statsData = await statsRes.json();
-//       setData(statsData);
-
-//       // Fetch Alerts
-//       const alertsRes = await fetch('http://localhost:8000/api/alerts/active');
-//       const alertsData = await alertsRes.json();
-//       setAlerts(alertsData);
-//     } catch (err) {
-//       console.error("Failed to fetch dashboard data", err);
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   useEffect(() => {
-//     fetchData();
-//     const interval = setInterval(fetchData, 5000); // Refresh every 5s
-//     return () => clearInterval(interval);
-//   }, []);
-
-//   if (loading || !data) {
-//     return (
-//       <div className="flex items-center justify-center min-h-screen">
-//         <div className="text-center">
-//           <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-//           <p className="text-lg font-medium text-gray-700">Initializing Hospital OS...</p>
-//         </div>
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="min-h-screen bg-gray-50 p-8 text-gray-900">
-//       <header className="mb-8 flex justify-between items-center">
-//         <div>
-//           <h1 className="text-3xl font-bold tracking-tight">Hospital AI Command Center</h1>
-//           <p className="text-gray-500">Real-time predictive analytics & resource management</p>
-//         </div>
-//         <div className="text-right">
-//           <p className="text-sm text-gray-400">Live System Status</p>
-//           <div className="flex items-center gap-2 justify-end">
-//             <span className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
-//             <span className="font-semibold text-green-700">Online</span>
-//           </div>
-//         </div>
-//       </header>
-
-//       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-//         {/* Left Column: The Eyes (Status) */}
-//         <div className="space-y-8 lg:col-span-2">
-//           <section>
-//             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-//               <span className="text-2xl">👁️</span> The Eyes
-//             </h2>
-//             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-//               <LiveHeatmap occupancy={data.occupancy} />
-//               <div className="space-y-6">
-//                 <GoldenHourClock 
-//                   currentWait={data.er_wait_time.current} 
-//                   predictedWait={data.er_wait_time.predicted_4h} 
-//                 />
-//                 <ResourceInventory resources={data.resources} />
-//               </div>
-//             </div>
-//           </section>
-//         </div>
-
-//         {/* Right Column: The Mind & Voice */}
-//         <div className="space-y-8">
-//           <section>
-//              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-//               <span className="text-2xl">🧠</span> The Mind
-//             </h2>
-//             <div className="space-y-6">
-//               <MindPredictions />
-//               <TriageAssistant />
-//             </div>
-//           </section>
-
-//           <section>
-//             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-//               <span className="text-2xl">🔊</span> The Voice
-//             </h2>
-//             {alerts && <Alerts alerts={alerts.alerts} />}
-//           </section>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default Dashboard;
-
-
-
-
-
-
 "use client";
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -146,6 +5,7 @@ import LiveHeatmap from '@/components/LiveHeatmap';
 import ResourceInventory from '@/components/ResourceInventory';
 import MindPredictions from '@/components/MindPredictions';
 import { Activity, Users, AlertCircle, BedDouble, HeartPulse, Timer, Zap } from 'lucide-react';
+import { endpoints, WS_BASE_URL } from '@/utils/api';
 
 interface DashboardData {
   occupancy: { ER: number; ICU: number; Surgery: number; Wards: number; };
@@ -161,15 +21,16 @@ const Dashboard = () => {
   const [isSimulating, setIsSimulating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [criticalAlert, setCriticalAlert] = useState<string | null>(null);
+  const [stressScore, setStressScore] = useState<number>(0);
 
   const fetchData = useCallback(async () => {
     try {
       // 1. Fetch Core Stats
-      const statsRes = await fetch('http://localhost:8000/api/dashboard/stats');
+      const statsRes = await fetch(endpoints.dashboardStats);
       const json = await statsRes.json();
       
       // 2. Fetch Surge Intelligence (The Wow Factor)
-      const surgeRes = await fetch('http://localhost:8000/api/predict/time-to-capacity');
+      const surgeRes = await fetch(endpoints.timeToCapacity);
       const surgeData = await surgeRes.json();
       setSurge(surgeData);
 
@@ -180,12 +41,18 @@ const Dashboard = () => {
             ambulances: json.resources.Ambulances
         },
         system_status: {
-            diversion_active: json.bed_stats.available === 0 || isSimulating,
-            occupancy_rate: isSimulating ? 98 : Math.round((json.bed_stats.occupied / json.bed_stats.total) * 100)
+            diversion_active: json.bed_stats.available === 0,
+            occupancy_rate: Math.round((json.bed_stats.occupied / json.bed_stats.total) * 100)
         }
       };
       
       setData(adaptedData);
+      const occ = adaptedData.system_status.occupancy_rate / 100;
+      const vel = Math.min((surgeData?.velocity || 0) / 120, 1);
+      const ttc = 1 - Math.min((surgeData?.minutes_remaining || 0) / 120, 1);
+      const score = Math.round(100 * (0.5 * occ + 0.3 * vel + 0.2 * ttc));
+      setStressScore(score);
+      setIsSimulating(score >= 70);
     } catch (err) {
       console.error("Dashboard Sync Error", err);
     } finally {
@@ -197,7 +64,7 @@ const Dashboard = () => {
     fetchData();
     const interval = setInterval(fetchData, 5000); 
 
-    const ws = new WebSocket("ws://localhost:8000/ws/vitals");
+    const ws = new WebSocket(`${WS_BASE_URL}/ws/vitals`);
     ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === "CRITICAL_VITALS") {
@@ -238,7 +105,15 @@ const Dashboard = () => {
           <p className="text-gray-500 font-medium">Predictive Bed Orchestration & Resource Intelligence</p>
         </div>
         <button 
-          onClick={() => setIsSimulating(!isSimulating)}
+          onClick={() => {
+            if (!data || !surge) return;
+            const occ = (data.system_status?.occupancy_rate || 0) / 100;
+            const vel = Math.min((surge?.velocity || 0) / 120, 1);
+            const ttc = 1 - Math.min((surge?.minutes_remaining || 0) / 120, 1);
+            const score = Math.round(100 * (0.5 * occ + 0.3 * vel + 0.2 * ttc));
+            setStressScore(score);
+            setIsSimulating(score >= 70);
+          }}
           className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold transition-all ${
             isSimulating 
             ? 'bg-red-500 text-white shadow-lg shadow-red-500/40' 
@@ -246,14 +121,14 @@ const Dashboard = () => {
           }`}
         >
           <Zap className="w-4 h-4" />
-          {isSimulating ? 'STOP SIMULATION' : 'RUN STRESS TEST'}
+          {isSimulating ? `STRESS: ${stressScore}` : 'EVALUATE STRESS'}
         </button>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         {/* KPI Cards (Logic Enhanced) */}
         <Card label="Total Occupancy" val={`${data.system_status?.occupancy_rate}%`} icon={<Activity />} color="blue" isDark={isSimulating} />
-        <Card label="Nurse Ratio" val={data.staff_ratio} icon={<Users />} color="indigo" isDark={isSimulating} />
+        <Card label="Doctor Ratio" val={data.staff_ratio} icon={<Users />} color="indigo" isDark={isSimulating} />
         
         {/* Proactive Intelligence Card (The Wow Factor) */}
         <div className={`p-6 rounded-2xl shadow-sm border transition-all ${
@@ -287,7 +162,7 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-8">
-        <MindPredictions />
+        <MindPredictions data={surge?.forecast || []} />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <LiveHeatmap occupancy={data.occupancy} />
           <ResourceInventory resources={data.resources} />
