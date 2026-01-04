@@ -25,7 +25,7 @@ export default function RootLayout({
       >
         <GlobalAlertBanner />
         <Navbar />
-        <main className="flex-grow container mx-auto px-4 py-8">
+        <main className="flex-grow w-full">
           {children}
         </main>
       </body>

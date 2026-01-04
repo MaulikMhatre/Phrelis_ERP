@@ -3,10 +3,12 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 
 import LiveHeatmap from "@/components/LiveHeatmap";
 import ResourceInventory from "@/components/ResourceInventory";
 import MindPredictions from "@/components/MindPredictions";
+import LandingPage from "@/components/LandingPage";
 
 import {
   Activity,
@@ -25,6 +27,7 @@ import {
 ---------------------------------------------- */
 
 export default function DashboardPage() {
+  const [showLanding, setShowLanding] = useState(true);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [criticalAlert, setCriticalAlert] = useState<string | null>(null);
@@ -77,13 +80,22 @@ export default function DashboardPage() {
   }, [fetchData]);
 
   /* ---------------------------------------------
-     LOADING STATE
+     LANDING & LOADING STATES
   ---------------------------------------------- */
+
+  if (showLanding) {
+    return <LandingPage onEnter={() => setShowLanding(false)} />;
+  }
 
   if (loading || !data) {
     return (
       <div className="h-screen w-full bg-black flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+        <div className="relative">
+          <div className="w-16 h-16 rounded-full border-4 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-indigo-500/20 blur-xl animate-pulse" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -93,16 +105,27 @@ export default function DashboardPage() {
   ---------------------------------------------- */
 
   return (
-    <div className="h-screen w-full bg-black text-slate-100 flex overflow-hidden">
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      transition={{ duration: 1 }}
+      className="h-screen w-full bg-black text-slate-100 flex overflow-hidden"
+    >
       
-
-      <main className="flex-1 flex flex-col relative min-w-0">
+      <main className="flex-1 flex flex-col relative min-w-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/20 via-black to-black">
         {/* Simulation Banner */}
-        {isSimulating && (
-          <div className="w-full bg-indigo-600 text-white py-1 text-[10px] font-black tracking-[0.4em] text-center uppercase">
-            Surge Simulation Mode Active
-          </div>
-        )}
+        <AnimatePresence>
+          {isSimulating && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="w-full bg-indigo-600/90 backdrop-blur-md text-white py-1 text-[10px] font-black tracking-[0.4em] text-center uppercase border-b border-indigo-400/30 shadow-[0_0_20px_rgba(79,70,229,0.5)]"
+            >
+              Surge Simulation Mode Active
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="flex-1 overflow-y-auto px-12 py-10 space-y-14 custom-scrollbar">
           <Header
@@ -111,12 +134,20 @@ export default function DashboardPage() {
             toggleSim={() => setIsSimulating(!isSimulating)}
           />
 
-          {criticalAlert && (
-            <CriticalAlert
-              message={criticalAlert}
-              onClose={() => setCriticalAlert(null)}
-            />
-          )}
+          <AnimatePresence>
+            {criticalAlert && (
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+              >
+                <CriticalAlert
+                  message={criticalAlert}
+                  onClose={() => setCriticalAlert(null)}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <MetricsGrid data={data} isSimulating={isSimulating} />
 
@@ -136,7 +167,7 @@ export default function DashboardPage() {
           </section>
         </div>
       </main>
-    </div>
+    </motion.div>
   );
 }
 
@@ -148,28 +179,29 @@ const Header = ({ time, isSimulating, toggleSim }: any) => (
   <header className="flex justify-between items-end">
     <div>
       <div className="flex items-center gap-4 mb-3">
-        <span className="text-indigo-500 text-[10px] font-black tracking-[0.35em] uppercase">
+        <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-black tracking-[0.35em] uppercase shadow-[0_0_10px_rgba(99,102,241,0.1)]">
           Intelligence Division
         </span>
-        <span className="text-slate-600 text-[10px] font-mono">
+        <span className="text-slate-500 text-[10px] font-mono tracking-widest">
           {time.toLocaleTimeString()}
         </span>
       </div>
-      <h1 className="text-6xl font-black tracking-tight leading-none">
+      <h1 className="text-6xl font-black tracking-tighter leading-none bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-500 drop-shadow-2xl">
         Hospital Command Center
       </h1>
     </div>
 
     <button
       onClick={toggleSim}
-      className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black tracking-tight border-2 transition-all ${
+      className={`group relative flex items-center gap-3 px-8 py-4 rounded-2xl font-black tracking-tight border transition-all duration-300 overflow-hidden ${
         isSimulating
-          ? "bg-indigo-600 border-indigo-500 text-white shadow-[0_0_40px_rgba(99,102,241,0.35)] animate-pulse"
-          : "border-white/10 text-white hover:border-indigo-500 hover:text-indigo-400"
+          ? "bg-indigo-600 border-indigo-500 text-white shadow-[0_0_40px_rgba(99,102,241,0.5)]"
+          : "bg-white/5 border-white/10 text-slate-300 hover:border-indigo-500/50 hover:text-indigo-400 hover:bg-indigo-500/10"
       }`}
     >
-      <Zap className="w-5 h-5" />
-      {isSimulating ? "Terminate Stress" : "Stress Test"}
+      <div className={`absolute inset-0 bg-indigo-400/20 blur-xl transition-opacity duration-300 ${isSimulating ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`} />
+      <Zap className={`w-5 h-5 relative z-10 ${isSimulating ? 'animate-pulse' : ''}`} />
+      <span className="relative z-10">{isSimulating ? "Terminate Stress" : "Stress Test"}</span>
     </button>
   </header>
 );
@@ -179,16 +211,17 @@ const Header = ({ time, isSimulating, toggleSim }: any) => (
 ---------------------------------------------- */
 
 const CriticalAlert = ({ message, onClose }: any) => (
-  <div className="bg-rose-600/5 border border-rose-500/50 rounded-[2.5rem] p-8 flex justify-between items-center shadow-[0_0_60px_rgba(225,29,72,0.15)]">
-    <div className="flex items-center gap-6">
-      <div className="p-4 bg-rose-600 rounded-3xl shadow-xl shadow-rose-600/40">
-        <HeartPulse className="w-10 h-10 text-white animate-pulse" />
+  <div className="relative overflow-hidden bg-rose-950/20 border border-rose-500/30 rounded-[2rem] p-8 flex justify-between items-center shadow-[0_0_60px_rgba(225,29,72,0.1)] backdrop-blur-md">
+    <div className="absolute inset-0 bg-gradient-to-r from-rose-600/10 to-transparent opacity-50" />
+    <div className="relative flex items-center gap-6 z-10">
+      <div className="p-4 bg-rose-600 rounded-2xl shadow-[0_0_30px_rgba(225,29,72,0.4)] animate-pulse">
+        <HeartPulse className="w-8 h-8 text-white" />
       </div>
       <div>
-        <p className="text-[11px] font-black tracking-[0.35em] uppercase text-rose-500 mb-1">
+        <p className="text-[10px] font-black tracking-[0.35em] uppercase text-rose-400 mb-1">
           Priority Broadcast
         </p>
-        <p className="text-3xl font-black uppercase tracking-tight italic">
+        <p className="text-2xl font-black uppercase tracking-tight italic text-rose-100">
           Code Red: {message}
         </p>
       </div>
@@ -196,9 +229,9 @@ const CriticalAlert = ({ message, onClose }: any) => (
 
     <button
       onClick={onClose}
-      className="px-10 py-4 rounded-2xl bg-rose-600 font-black hover:brightness-110"
+      className="relative z-10 px-8 py-3 rounded-xl bg-rose-600 font-bold text-white text-sm tracking-wide hover:bg-rose-500 transition-colors shadow-lg shadow-rose-900/20"
     >
-      Acknowledge
+      ACKNOWLEDGE
     </button>
   </div>
 );
@@ -208,47 +241,54 @@ const CriticalAlert = ({ message, onClose }: any) => (
 ---------------------------------------------- */
 
 const MetricsGrid = ({ data, isSimulating }: any) => (
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
     <Metric label="Capacity" value={`${data.system_status.occupancy_rate}%`} icon={<Activity />} />
     <Metric label="Nurse Ratio" value={data.staff_ratio} icon={<Users />} />
     <Metric label="Free Beds" value={data.bed_stats.available} icon={<BedDouble />} />
 
     <div
-      className={`p-8 rounded-[2.5rem] border-2 flex flex-col justify-between transition-all ${
+      className={`relative overflow-hidden p-8 rounded-[2.5rem] border flex flex-col justify-between transition-all duration-500 ${
         isSimulating || data.system_status.diversion_active
-          ? "bg-rose-600/5 border-rose-600/50 text-rose-500"
-          : "bg-indigo-600/5 border-indigo-600/50 text-indigo-500"
+          ? "bg-rose-950/30 border-rose-500/50 text-rose-500 shadow-[0_0_30px_rgba(225,29,72,0.15)]"
+          : "bg-indigo-950/30 border-indigo-500/30 text-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.1)]"
       }`}
     >
-      <AlertCircle className="w-10 h-10 mb-4" />
-      <div>
-        <p className="text-[10px] font-black tracking-[0.35em] uppercase opacity-60 mb-1">
-          System Status
-        </p>
-        <p className="text-4xl font-black uppercase tracking-tight">
-          {isSimulating || data.system_status.diversion_active
-            ? "Diversion"
-            : "Normal"}
-        </p>
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-50" />
+      <div className="relative z-10">
+        <AlertCircle className="w-10 h-10 mb-4 opacity-80" />
+        <div>
+          <p className="text-[10px] font-black tracking-[0.35em] uppercase opacity-60 mb-1">
+            System Status
+          </p>
+          <p className="text-4xl font-black uppercase tracking-tight">
+            {isSimulating || data.system_status.diversion_active
+              ? "Diversion"
+              : "Normal"}
+          </p>
+        </div>
       </div>
     </div>
   </div>
 );
 
 const Metric = ({ label, value, icon }: any) => (
-  <div className="bg-[#0b0b0b] p-8 rounded-[2.5rem] border border-white/5 shadow-2xl hover:border-indigo-500/40 transition">
-    <div className="inline-flex p-4 bg-white/5 rounded-2xl mb-8 text-indigo-500">
-      {React.cloneElement(icon, { size: 34 })}
+  <div className="group relative bg-[#0b0b0b]/80 backdrop-blur-xl p-8 rounded-[2.5rem] border border-white/5 shadow-2xl hover:border-indigo-500/30 hover:bg-white/[0.02] transition-all duration-300">
+    <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-[2.5rem]" />
+    
+    <div className="relative z-10">
+      <div className="inline-flex p-4 bg-white/5 rounded-2xl mb-8 text-indigo-500 shadow-inner border border-white/5 group-hover:text-indigo-400 group-hover:scale-110 transition-all duration-300">
+        {React.cloneElement(icon, { size: 32 })}
+      </div>
+      <p className="text-[10px] font-black tracking-[0.35em] uppercase text-slate-500 mb-2 group-hover:text-slate-400 transition-colors">
+        {label}
+      </p>
+      <p className="text-5xl font-black tracking-tight text-slate-200 group-hover:text-white transition-colors">{value}</p>
     </div>
-    <p className="text-[11px] font-black tracking-[0.35em] uppercase text-slate-500 mb-2">
-      {label}
-    </p>
-    <p className="text-5xl font-black tracking-tight">{value}</p>
   </div>
 );
 
 /* ---------------------------------------------
-   SIDEBAR LINK
+   SIDEBAR LINK (Keeping for reference if needed)
 ---------------------------------------------- */
 
 const SidebarLink = ({ icon, label, active = false }: any) => (
