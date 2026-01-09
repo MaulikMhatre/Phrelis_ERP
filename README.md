@@ -1,3 +1,4 @@
+![dashboard_page](https://github.com/user-attachments/assets/c8feeed1-5458-449c-a675-15e7bac53ff7)
 # Team-apicalypse
 HEALTH IT SYSTEMS
 PROJECT NAME- PHRELIS:ADVANCED MEDICAL INTELLIGENCE
