@@ -1,4 +1,4 @@
-![dashboard_page](https://github.com/user-attachments/assets/c8feeed1-5458-449c-a675-15e7bac53ff7)
+
 # Team-apicalypse
 HEALTH IT SYSTEMS
 PROJECT NAME- PHRELIS:ADVANCED MEDICAL INTELLIGENCE
@@ -143,10 +143,13 @@ http://localhost:3000
 
 
 ## Screenshots:
-
-
-
-![Alternative Text]("C:\Users\patel\Downloads\Dashboard.jpeg")
-![Alternative Text]("C:\Users\patel\Downloads\analytics.jpeg")
-![Alternative Text]("C:\Users\patel\Downloads\sentinel.jpeg")
 ![landing_page](https://github.com/user-attachments/assets/c77420fd-44b3-45dc-b423-4604dec56c2b)
+![dashboard_page](https://github.com/user-attachments/assets/c8feeed1-5458-449c-a675-15e7bac53ff7)
+![prediction_page](https://github.com/user-attachments/assets/58e4476a-1e4e-4ab9-9185-891aad526595)
+![sentiment_command_center](https://github.com/user-attachments/assets/9cd011ee-a825-4bac-892c-74685f037966)
+![ERP](https://github.com/user-attachments/assets/2f9c2e42-8c35-47a9-b46c-28cdeb099eae)
+![Smart Triage Portal](https://github.com/user-attachments/assets/3aca2f6c-62f6-484a-9fff-81e70a596a9c)
+![Staff](https://github.com/user-attachments/assets/5ba65605-53b9-4002-be91-1ed514f4fd65)
+
+
+
