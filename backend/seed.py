@@ -1,39 +1,60 @@
 
 from database import SessionLocal, engine, Base
-from models import BedModel
+import models 
 
 def seed_beds():
-
-    print("Initializing database tables...")
+    print("Initializing system infrastructure...")
     Base.metadata.create_all(bind=engine)
-
     db = SessionLocal()
     
     try:
-        # STEP 2: Check if beds already exist
-        if db.query(BedModel).count() > 0:
-            print("Beds already initialized in the database.")
-            return
+        # 1. Seed Beds (Keep this: these are physical assets)
+        if db.query(models.BedModel).count() == 0:
+            print("Seeding beds...")
+            beds = []
+            for i in range(1, 21):
+                beds.append(models.BedModel(id=f"ICU-{i}", type="ICU", is_occupied=False, status="AVAILABLE"))
+            for i in range(1, 41):
+                beds.append(models.BedModel(id=f"ER-{i}", type="ER", is_occupied=False, status="AVAILABLE"))
+            db.add_all(beds)
 
-        print("Seeding beds...")
-        beds = []
-        # Initialize 20 ICU beds
-        for i in range(1, 21):
-            beds.append(BedModel(id=f"ICU-{i}", type="ICU", is_occupied=False))
-        
-        # Initialize 40 ER beds
-        for i in range(1, 41):
-            beds.append(BedModel(id=f"ER-{i}", type="ER", is_occupied=False))
+        # 2. Seed Staff (Keep this: needed to log in and take patients)
+        if db.query(models.Staff).count() == 0:
+            print("Seeding staff...")
+            staff_members = [
+                models.Staff(id="N-01", name="Nurse Jackie", role="Nurse", hashed_password="password123", is_clocked_in=True),
+                models.Staff(id="D-01", name="Dr. House", role="Doctor", hashed_password="password123", is_clocked_in=True)
+            ]
+            db.add_all(staff_members)
 
-        db.add_all(beds)
         db.commit()
-        print("Successfully seeded 60 hospital beds.")
+        print("Infrastructure ready. System is now a blank slate for admissions.")
         
     except Exception as e:
-        print(f"An error occurred during seeding: {e}")
+        print(f"Error: {e}")
         db.rollback()
     finally:
         db.close()
 
 if __name__ == "__main__":
     seed_beds()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

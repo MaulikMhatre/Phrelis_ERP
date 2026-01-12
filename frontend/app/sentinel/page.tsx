@@ -1,12 +1,10 @@
 import React from 'react';
 import FlowSentinel from '@/components/FlowSentinel';
-import Navbar from '@/components/Navbar';
 import GlobalAlertBanner from '@/components/GlobalAlertBanner';
 
 export default function SentinelPage() {
   return (
     <div className="min-h-screen bg-black text-white">
-      <Navbar />
       <div className="pt-24 px-6">
         <GlobalAlertBanner />
         

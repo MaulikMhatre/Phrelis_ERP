@@ -14,7 +14,14 @@ const MindPredictions = () => {
   useEffect(() => {
     const fetchModel = async () => {
       try {
-        const res = await fetch(endpoints.predictInflow, { method: 'POST' });
+        const res = await fetch(endpoints.predictInflow, { method: 'POST',headers: { 'Content-Type': 'application/json' }});
+
+        const contentType = res.headers.get("content-type");
+      if (!res.ok || !contentType?.includes("application/json")) {
+        const text = await res.text();
+        console.error("Expected JSON but got:", text.substring(0, 100));
+        return;
+      }
         const json = await res.json();
         setData(json);
       } catch (err) {
@@ -66,16 +73,16 @@ const MindPredictions = () => {
              {/* Weather Factor */}
              <div className="flex justify-between items-center">
                 <span className="text-xs text-slate-400">Weather Multiplier</span>
-                <span className="text-amber-400 font-bold">{data?.factors?.systemic_saturation || '0'} </span>
+                <span className="text-amber-400 font-bold">{data?.factors?.environmental || '1.0x'}</span>
              </div>
              {/* Saturation Factor */}
              <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-400">Systemic Inertia</span>
-                <span className="text-amber-400 font-bold">+{data?.saturation_impact}%</span>
+                <span className="text-xs text-slate-400">Systemic Saturation</span>
+                <span className="text-amber-400 font-bold">{data?.factors?.systemic_saturation || '1.0x'}</span>
              </div>
           </div>
           <div className="mt-6 p-2 bg-indigo-500/10 rounded border border-indigo-500/20 text-[10px] text-indigo-300">
-             {data?.weather_impact.reason}
+            {data?.weather_impact?.reason || "No weather impact data available"}
           </div>
         </div>
 
@@ -111,6 +118,7 @@ const MindPredictions = () => {
               }
 
               return forecast.map((item: any, i: number) => {
+                const currentInflow = item.inflow || 0;
                 const h = Math.max(10, Math.round((item.inflow / maxVal) * 100)); // Min 10% height
                 const active = hover?.i === i;
                 return (

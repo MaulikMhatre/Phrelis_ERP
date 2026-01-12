@@ -14,7 +14,8 @@ export const endpoints = {
   beds: `${API_BASE_URL}/api/erp/beds`,
   admit: `${API_BASE_URL}/api/erp/admit`,
   discharge: (id: string) => `${API_BASE_URL}/api/erp/discharge/${id}`,
-
+  startCleaning: (id: string) => `${API_BASE_URL}/api/erp/beds/${id}/start-cleaning`,
+  cleaningComplete: (id: string) => `${API_BASE_URL}/api/erp/beds/${id}/cleaning-complete`,
   // Ambulances
   ambulances: `${API_BASE_URL}/api/ambulances`,
   ambulanceDispatch: `${API_BASE_URL}/api/ambulance/dispatch`,
@@ -24,8 +25,8 @@ export const endpoints = {
   dashboardStats: 'http://127.0.0.1:8000/api/dashboard/stats',
   insights: `${API_BASE_URL}/api/dashboard/insights`,
   predictions: `${API_BASE_URL}/api/predictions`,
-  predictInflow: 'http://127.0.0.1:8000/api/predict-inflow',
-  timeToCapacity: 'http://127.0.0.1:8000/api/predict-inflow',
+  predictInflow: `http://127.0.0.1:8000/api/predict-inflow`,
+  timeToCapacity: `${API_BASE_URL}/api/metrics/latency`,
   latencyMetrics: `${API_BASE_URL}/api/metrics/latency`,
   
   // Events / Alerts

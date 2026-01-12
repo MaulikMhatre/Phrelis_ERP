@@ -75,6 +75,9 @@ const StaffPortal = () => {
 
   const assignBed = async (staffId: string, bedId: string, role: string) => {
       try {
+        const targetBed = beds.find(b => b.id === bedId);
+        const patientName = targetBed?.patient_name || "Unknown Patient";
+
         const res = await fetch(endpoints.staffAssign, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -83,9 +86,9 @@ const StaffPortal = () => {
         
         if (!res.ok) {
             const err = await res.json();
-            toast(err.detail, "warning");
+            toast(err.detail || "Assignment limit reached", "warning");
         } else {
-            toast(`Assigned to ${bedId}`, "success");
+           toast(`Successfully assigned to ${patientName} (${bedId})`, "success");
             fetchStaffData();
             if (currentUser === staffId) handleLogin(staffId); // Refresh my dashboard
         }

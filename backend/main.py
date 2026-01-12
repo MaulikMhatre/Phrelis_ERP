@@ -1,6 +1,7 @@
 import uvicorn
 import math
 import uuid
+from datetime import timedelta
 from datetime import datetime
 from typing import List, Optional
 from datetime import datetime, date
@@ -11,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from passlib.context import CryptContext
+from jose import jwt
 
 
 from database import engine, get_db
@@ -32,6 +35,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Security Config
+PWD_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = "your_super_secret_hospital_key" 
+ALGORITHM = "HS256"
+
+class LoginRequest(BaseModel):
+    staff_id: str
+    password: str
 
 
 class MedicalAgent:
@@ -84,10 +95,13 @@ async def websocket_endpoint(websocket: WebSocket):
 class AdmissionRequest(BaseModel):
     bed_id: str
     patient_name: str
-    age: int
+    patient_age: int
     condition: str
+    staff_id: str
 
 class TriageRequest(BaseModel):
+    patient_name: str
+    patient_age: int
     symptoms: List[str]
     vitals: Optional[dict] = {}
 
@@ -120,6 +134,80 @@ class PredictionCreate(BaseModel):
 
 #  Admin ERP Endpoints 
 
+
+# Logic to generate smart tasks based on condition
+def generate_smart_tasks(db: Session, bed_id: str, condition: str,patient_id: str = None):
+    tasks = []
+    now = datetime.utcnow()
+    
+    # Ensure condition is a string to prevent errors
+    cond_lower = str(condition).lower() if condition else ""
+
+    if "critical" in cond_lower or "resuscitation" in cond_lower:
+        tasks = [
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Q15m Vital Signs Monitor", due_time=now + timedelta(minutes=15), priority="Critical"),
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Check Arterial Line / IV Patency", due_time=now + timedelta(hours=1), priority="High"),
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Emergency Meds Preparation", due_time=now + timedelta(minutes=30), priority="Critical")
+        ]
+    elif "pre-surgery" in cond_lower or "pre sugrey" in cond_lower:
+        tasks = [
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Confirm NPO Status", due_time=now + timedelta(hours=1), priority="High"),
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Verify Surgical Consent", due_time=now + timedelta(hours=2), priority="Medium")
+        ]
+    elif "observation" in cond_lower:
+        tasks = [
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Hourly Neuro Check", due_time=now + timedelta(hours=1), priority="Medium")
+        ]
+    else: # Stable
+        tasks = [
+            models.Task(bed_id=bed_id,patient_id=patient_id, description="Routine Ward Rounds", due_time=now + timedelta(hours=4), priority="Low")
+        ]
+    
+    if tasks:
+        db.add_all(tasks)
+        db.commit()
+
+@app.get("/api/tasks/sync-all")
+async def sync_existing_patients(db: Session = Depends(get_db)):
+    # Find all occupied beds
+    occupied_beds = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).all()
+    
+    for bed in occupied_beds:
+        # Check if tasks already exist to avoid duplicates
+        existing_tasks = db.query(models.Task).filter(models.Task.bed_id == bed.id, models.Task.status == "Pending").first()
+        
+        if not existing_tasks:
+            # Use the protocol function
+            generate_smart_tasks(db, bed.id, bed.condition or "Stable")
+            
+    # Tell the frontend to update via WebSocket
+    await manager.broadcast({"type": "REFRESH_RESOURCES"})
+    return {"message": f"Tasks generated for {len(occupied_beds)} patients"}
+
+
+
+@app.post("/api/login")
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
+    # Look for the staff member
+    staff = db.query(models.Staff).filter(models.Staff.id == request.staff_id).first()
+    
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff ID not found in database")
+    
+    # Generate token (ignoring password for now to get you inside)
+    access_token = jwt.encode({
+        "sub": staff.id, 
+        "role": staff.role,
+        "exp": datetime.utcnow() + timedelta(hours=8)
+    }, SECRET_KEY, algorithm=ALGORITHM)
+    
+    return {
+        "access_token": access_token, 
+        "role": staff.role, 
+        "staff_id": staff.id
+    }
+
+
 @app.post("/api/erp/admit")
 async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)):
     # 1. Find the bed
@@ -138,30 +226,63 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
     bed.condition = request.condition
 
     
+    bed.status = "OCCUPIED" 
+
     if hasattr(bed, 'age'): 
         bed.patient_age = request.age
-    
+
+    new_patient_id = str(uuid.uuid4())
     # 4. Create History Record
     new_record = models.PatientRecord(
-        id=str(uuid.uuid4()),
+        id=new_patient_id,
+        bed_id=request.bed_id,
         esi_level=3, # Default for direct admission
         acuity="Admitted",
         symptoms=["Direct Admission"],
         timestamp=datetime.utcnow(),
         patient_name=request.patient_name,
-        patient_age=request.age,
-        condition=request.condition
+        patient_age=request.patient_age,
+        condition=request.condition,
+        assigned_staff=request.staff_id
     )
     db.add(new_record)
 
     db.commit()
     db.refresh(bed)
     
-
-    await manager.broadcast({"type": "REFRESH_RESOURCES"})
+    generate_smart_tasks(db, request.bed_id, request.condition,patient_id=new_patient_id)
+    await manager.broadcast({
+        "type": "BED_UPDATE", 
+        "bed_id": bed.id, 
+        "new_status": "OCCUPIED",
+        "color_code": bed.get_color_code()
+    })
     
-    return {"message": f"Patient admitted to {bed.id}", "status": "success"}
+    return {"message": f"Patient admitted to {bed.id} and {request.staff_id} and Smart Worklist generated", "status": "success"}
 
+
+
+@app.post("/api/tasks/complete/{task_id}")
+async def complete_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Update status to something that WON'T match the dashboard filter
+    task.status = "Completed"
+    task.completed_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(task) # Ensure the object is updated with DB state
+    
+    # CRITICAL: If you have a WebSocket manager, broadcast the refresh
+    # This tells the frontend "Something changed, re-fetch your data!"
+    try:
+        await manager.broadcast({"type": "REFRESH_RESOURCES"})
+    except:
+        pass # Fallback if manager isn't initialized
+        
+    return {"status": "success", "task_id": task_id}
 
 
 @app.get("/api/erp/beds")
@@ -181,16 +302,65 @@ async def discharge(bed_id: str, db: Session = Depends(get_db)):
             
             if history_record:
                 history_record.discharge_time = datetime.utcnow()
+        
+        db.query(models.Task).filter(
+            models.Task.bed_id == bed_id, 
+            models.Task.status == "Pending"
+        ).update({"status": "Cancelled"}) # Or delete them
 
         bed.is_occupied = False
+        bed.status = "DIRTY"
         bed.patient_name = None
         bed.patient_age = None
         bed.condition = None
         bed.ventilator_in_use = False
         db.commit()
-        await manager.broadcast({"type": "REFRESH_RESOURCES"})
+        
+        await manager.broadcast({
+            "type": "BED_UPDATE", 
+            "bed_id": bed.id, 
+            "new_status": "DIRTY",
+            "color_code": bed.get_color_code()
+        })
         return {"status": "success"}
     raise HTTPException(status_code=404, detail="Bed not found")
+
+
+@app.post("/api/erp/beds/{bed_id}/start-cleaning")
+async def start_cleaning(bed_id: str, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
+    if not bed:
+        raise HTTPException(status_code=404, detail="Bed not found")
+        
+    bed.status = "CLEANING"
+    db.commit()
+    
+    await manager.broadcast({
+        "type": "BED_UPDATE", 
+        "bed_id": bed.id, 
+        "new_status": "CLEANING",
+        "color_code": bed.get_color_code()
+    })
+    return {"status": "success"}
+
+@app.post("/api/erp/beds/{bed_id}/cleaning-complete")
+async def cleaning_complete(bed_id: str, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
+    if not bed:
+        raise HTTPException(status_code=404, detail="Bed not found")
+        
+    bed.status = "AVAILABLE"
+    # Ensure is_occupied is false just in case
+    bed.is_occupied = False 
+    db.commit()
+    
+    await manager.broadcast({
+        "type": "BED_UPDATE", 
+        "bed_id": bed.id, 
+        "new_status": "AVAILABLE",
+        "color_code": bed.get_color_code()
+    })
+    return {"status": "success"}
 
 
 
@@ -216,6 +386,9 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         ventilator_needed = True
         acuity_text += " (Ventilator Required)"
     
+    available_nurse = db.query(models.Staff).filter(models.Staff.is_clocked_in == True).first()
+    assigned_staff_id = available_nurse.id if available_nurse else "N-01" # Fallback ID
+
     # 1. Save to History Table (PatientRecord)
     new_record = models.PatientRecord(
         id=str(uuid.uuid4()),
@@ -223,8 +396,9 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         acuity=acuity_text,
         symptoms=request.symptoms,
         timestamp=datetime.utcnow(),
-        patient_name="Unknown Patient", # Triage doesn't have name
-        patient_age=None,
+        patient_name=request.patient_name, 
+        patient_age=request.patient_age,
+        assigned_staff=assigned_staff_id,
         condition=f"Triaged: {acuity_text}"
     )
     db.add(new_record)
@@ -232,7 +406,8 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     # 2. Auto-assign Bed
     bed = db.query(models.BedModel).filter(
         models.BedModel.type == bed_type, 
-        models.BedModel.is_occupied == False
+        models.BedModel.is_occupied == False,
+        models.BedModel.status == "AVAILABLE"
     ).first()
     
     justification = await ai_agent.justify(level, request.symptoms)
@@ -240,8 +415,11 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     assigned_id = None
     if bed:
         bed.is_occupied = True
-        bed.patient_name = "Unknown Patient"
+        bed.status = "OCCUPIED"
+        bed.patient_name = request.patient_name
+        bed.patient_age = request.patient_age
         bed.condition = f"Triaged: {acuity_text}"
+        bed.assigned_staff = assigned_staff_id
         bed.admission_time = datetime.utcnow()
         bed.ventilator_in_use = ventilator_needed
         assigned_id = bed.id
@@ -252,14 +430,16 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
 
     await manager.broadcast({
         "type": "NEW_ADMISSION", 
-        "bed_id": assigned_id, 
+        "bed_id": assigned_id,
+        "patient_name": request.patient_name, 
         "is_critical": level <= 2
     })
 
     return {
         "severity": acuity_text, 
         "recommended_actions": ["Immediate Vitals", "ECG" if level == 1 else "Observation"],
-        "assigned_bed": assigned_id, 
+        "assigned_bed": assigned_id,
+        "patient_name": request.patient_name,
         "ai_justification": justification
     }
 
@@ -422,9 +602,41 @@ def clock_staff(request: StaffClockIn, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success", "is_clocked_in": staff.is_clocked_in}
 
+@app.get("/api/staff/worklist/{staff_id}")
+async def get_staff_worklist(staff_id: str, db: Session = Depends(get_db)):
+    # 1. Find patients assigned to this specific nurse
+    patients = db.query(models.PatientRecord).filter(
+        models.PatientRecord.assigned_staff == staff_id,
+        models.PatientRecord.discharge_time == None  
+    ).all()
+    
+    # 2. Get ONLY PENDING tasks for those specific patients
+    patient_ids = [p.id for p in patients]
+    tasks = db.query(models.Task).filter(
+        models.Task.patient_id.in_(patient_ids),
+        models.Task.status == "Pending"  
+    ).all()
+    
+    return {
+        "patients": patients,
+        "tasks": tasks,
+        "stats": {
+            "total_patients": len(patients),
+            "pending_tasks": len(tasks)
+        }
+    }
+
+
 @app.post("/api/staff/assign")
 def assign_staff(request: StaffAssign, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).first()
+    patient = db.query(models.PatientRecord).filter(models.PatientRecord.patient_name == bed.patient_name).first()
 
+    if not patient:
+        raise HTTPException(status_code=404, detail="No active patient found in this bed.")
+    
+    patient.assigned_staff = request.staff_id
+    
     if request.role == "Primary Nurse":
 
         current_load = db.query(models.BedAssignment).filter(
@@ -496,7 +708,7 @@ def initialize_hospital_beds(db: Session):
         for i in range(1, target + 1):
             bid = f"{prefix}-{i}"
             if bid not in existing_ids:
-                to_add.append(models.BedModel(id=bid, type=unit, is_occupied=False))
+                to_add.append(models.BedModel(id=bid, type=unit, is_occupied=False, status="AVAILABLE"))
         if to_add:
             db.add_all(to_add)
             db.commit()
@@ -517,15 +729,16 @@ def seed_db():
     # Seed Staff
     if db.query(models.Staff).count() == 0:
         staff = [
-            models.Staff(id="N-01", name="Nurse Jackie", role="Nurse", is_clocked_in=True),
-            models.Staff(id="N-02", name="Nurse Ratched", role="Nurse", is_clocked_in=True),
-            models.Staff(id="N-03", name="Nurse Joy", role="Nurse", is_clocked_in=False),
-            models.Staff(id="D-01", name="Dr. House", role="Doctor", is_clocked_in=True),
-            models.Staff(id="D-02", name="Dr. Strange", role="Doctor", is_clocked_in=False),
+            models.Staff( id="A-01",  name="System Admin",  role="Admin",  is_clocked_in=True,  hashed_password="adminpassword" ),
+            models.Staff(id="N-01", name="Nurse Jackie", role="Nurse", is_clocked_in=True, hashed_password="password123"),
+            models.Staff(id="N-02", name="Nurse Ratched", role="Nurse", is_clocked_in=True, hashed_password="password123"),
+            models.Staff(id="N-03", name="Nurse Joy", role="Nurse", is_clocked_in=False, hashed_password="password123"),
+            models.Staff(id="D-01", name="Dr. House", role="Doctor", is_clocked_in=True, hashed_password="password123"),
+            models.Staff(id="D-02", name="Dr. Strange", role="Doctor", is_clocked_in=False, hashed_password="password123"),
         ]
         db.add_all(staff)
         db.commit()
-
+    
 
 class WeatherService:
     @staticmethod
@@ -578,11 +791,12 @@ async def predict_inflow(db: Session = Depends(get_db)):
     return {
         "forecast": forecast,
         "total_predicted_inflow": total_val,
+        "risk_level": "HIGH SURGE RISK" if total_val > 50 else "STABLE",
         "weather_impact": weather,
         "confidence_score": 95, 
         "factors": {
-            "environmental": f"{round(w_mult, 2)}x",
-            "systemic_saturation": f"{round(saturation_factor, 2)}x"
+        "environmental": f"{round(w_mult, 2)}x",
+        "systemic_saturation": f"{round(saturation_factor, 2)}x"
         }
     }
 
@@ -696,3 +910,15 @@ def get_active_alerts(db: Session = Depends(get_db)):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
+
+
+
+
+
+
+
