@@ -16,6 +16,12 @@ export const endpoints = {
   discharge: (id: string) => `${API_BASE_URL}/api/erp/discharge/${id}`,
   startCleaning: (id: string) => `${API_BASE_URL}/api/erp/beds/${id}/start-cleaning`,
   cleaningComplete: (id: string) => `${API_BASE_URL}/api/erp/beds/${id}/cleaning-complete`,
+
+  // Surgery Unit
+  startSurgery: `${API_BASE_URL}/api/surgery/start`,
+  extendSurgery: (id: string) => `${API_BASE_URL}/api/surgery/extend/${id}`,
+  completeSurgery: (id: string) => `${API_BASE_URL}/api/surgery/complete/${id}`,
+  releaseSurgery: (id: string) => `${API_BASE_URL}/api/surgery/release/${id}`,
   // Ambulances
   ambulances: `${API_BASE_URL}/api/ambulances`,
   ambulanceDispatch: `${API_BASE_URL}/api/ambulance/dispatch`,
@@ -28,7 +34,7 @@ export const endpoints = {
   predictInflow: `http://127.0.0.1:8000/api/predict-inflow`,
   timeToCapacity: `${API_BASE_URL}/api/metrics/latency`,
   latencyMetrics: `${API_BASE_URL}/api/metrics/latency`,
-  
+
   // Events / Alerts
   events: `${API_BASE_URL}/api/events`,
   alertsActive: `${API_BASE_URL}/api/alerts/active`,
@@ -37,7 +43,8 @@ export const endpoints = {
   triage: `${API_BASE_URL}/api/triage`,
   triageAssess: `${API_BASE_URL}/api/triage/assess`,
   patients: `${API_BASE_URL}/api/patients`,
-  
+
   // History
   historyByDate: (date: string) => `${API_BASE_URL}/api/history/day/${date}`,
+  historySurgery: `${API_BASE_URL}/api/history/surgery`,
 };

@@ -14,11 +14,18 @@ class BedModel(Base):
     patient_name = Column(String, nullable=True)
     patient_age = Column(Integer, nullable=True)
     condition = Column(String, nullable=True)
+    surgeon_name = Column(String, nullable=True)
     
     # Snapshot of vitals at time of admission
     vitals_snapshot = Column(String, nullable=True) 
     admission_time = Column(DateTime, default=datetime.utcnow)
     ventilator_in_use = Column(Boolean, default=False)
+
+    # Surgery Unit Specific Fields
+    current_state = Column(String, default="AVAILABLE") # AVAILABLE, OCCUPIED, OVERTIME, DIRTY, CLEANING
+    expected_end_time = Column(DateTime, nullable=True)
+    cleanup_start_time = Column(DateTime, nullable=True)
+    next_surgery_start_time = Column(DateTime, nullable=True)
 
     def get_color_code(self):
         if self.status == "AVAILABLE": return "#32CD32" # Green
@@ -133,3 +140,18 @@ class PredictionLog(Base):
 
 
 
+
+class SurgeryHistory(Base):
+    __tablename__ = "surgery_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(String, index=True)
+    patient_name = Column(String)
+    patient_age = Column(Integer, nullable=True)
+    surgeon_name = Column(String, nullable=True)
+    
+    start_time = Column(DateTime)
+    end_time = Column(DateTime, default=datetime.utcnow)
+    
+    total_duration_minutes = Column(Integer)
+    overtime_minutes = Column(Integer, default=0)

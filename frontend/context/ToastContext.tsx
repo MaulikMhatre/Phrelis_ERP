@@ -13,7 +13,7 @@ interface Toast {
 }
 
 interface ToastContextType {
-  toast: (message: string, type?: ToastType) => void;
+  toast: (message: any, type?: ToastType) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -21,9 +21,31 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const toast = useCallback((message: string, type: ToastType = 'info') => {
+  const toast = useCallback((message: any, type: ToastType = 'info') => {
+    let safeMessage = message;
+
+    // Safety check for objects/arrays being passed as message
+    if (typeof message !== 'string') {
+      if (Array.isArray(message)) {
+        // Handle lists (often Pydantic errors)
+        safeMessage = message.map(item =>
+          typeof item === 'object' ? (item.msg || item.message || JSON.stringify(item)) : String(item)
+        ).join(', ');
+      } else if (typeof message === 'object' && message !== null) {
+        // Handle Pydantic error objects or other objects
+        safeMessage = message.msg || message.message || message.detail || JSON.stringify(message);
+
+        // If the extracted value is still an object/array, stringify it
+        if (typeof safeMessage !== 'string') {
+          safeMessage = JSON.stringify(safeMessage);
+        }
+      } else {
+        safeMessage = String(message);
+      }
+    }
+
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => [...prev, { id, message: safeMessage, type }]);
 
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -67,10 +89,10 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                 {t.type === 'info' && <Info className="w-5 h-5" />}
                 {t.type === 'warning' && <AlertTriangle className="w-5 h-5" />}
               </div>
-              
+
               <p className="text-sm font-medium pr-6">{t.message}</p>
-              
-              <button 
+
+              <button
                 onClick={(e) => { e.stopPropagation(); removeToast(t.id); }}
                 className="absolute top-2 right-2 p-1 rounded-full hover:bg-white/10 transition-colors"
               >
@@ -78,7 +100,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
               </button>
 
               {/* Progress Bar Animation */}
-              <motion.div 
+              <motion.div
                 initial={{ width: "100%" }}
                 animate={{ width: "0%" }}
                 transition={{ duration: 4, ease: "linear" }}

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { BedDouble, UserPlus, LogOut, ArrowLeft, Package, Plus, Minus, X, Activity, BrainCircuit, Ambulance, MapPin, Clock, AlertTriangle, Siren, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ResourceInventory from '@/components/ResourceInventory';
+import SurgerySection from '@/components/SurgerySection';
 import { endpoints } from '@/utils/api';
 import { useToast } from '@/context/ToastContext';
 
@@ -72,7 +73,7 @@ const CleaningTimer = ({ bedId, onRequestUnlock }: { bedId: string, onRequestUnl
 };
 const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accentColor }: any) => {
   const isRed = accentColor === 'red';
-  
+
   // Restore original styling classes for occupied state
   const occupiedClass = isRed
     ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.1)]'
@@ -85,7 +86,7 @@ const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accent
     try {
       await fetch(endpoints.cleaningComplete(bed.id), { method: 'POST' });
       localStorage.removeItem(`cleaning_end_time_${bed.id}`);
-      onRefresh(); 
+      onRefresh();
     } catch (e) {
       console.error("Manual unlock failed", e);
     }
@@ -93,11 +94,11 @@ const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accent
 
   return (
     <div className={`p-5 rounded-2xl border transition-all relative overflow-hidden group 
-      ${bed.status === 'OCCUPIED' ? occupiedClass : 
-        bed.status === 'DIRTY' ? 'bg-orange-500/10 border-orange-500/30 animate-pulse' : 
-        bed.status === 'CLEANING' ? 'bg-sky-500/10 border-sky-500/30' : 
-        'bg-white/5 border-white/5 hover:border-white/20 hover:bg-white/10'}`}>
-      
+      ${bed.status === 'OCCUPIED' ? occupiedClass :
+        bed.status === 'DIRTY' ? 'bg-orange-500/10 border-orange-500/30 animate-pulse' :
+          bed.status === 'CLEANING' ? 'bg-sky-500/10 border-sky-500/30' :
+            'bg-white/5 border-white/5 hover:border-white/20 hover:bg-white/10'}`}>
+
       <div className="flex justify-between items-start mb-4">
         <p className="text-[10px] font-black text-slate-500">{bed.id}</p>
         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: bed.status === "AVAILABLE" ? "#32CD32" : bed.status === "OCCUPIED" ? (isRed ? "#FF4500" : "#3b82f6") : bed.status === "DIRTY" ? "#FFA500" : "#87CEEB" }} />
@@ -119,9 +120,9 @@ const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accent
               </span>
             )}
           </div>
-          
-          <button 
-            onClick={onDischarge} 
+
+          <button
+            onClick={onDischarge}
             className={`w-full py-2 ${isRed ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30'} text-[10px] font-bold rounded-lg transition-colors`}
           >
             DISCHARGE
@@ -160,7 +161,7 @@ const AdminPanel = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedBed, setSelectedBed] = useState<any | null>(null);
-  const [patientData, setPatientData] = useState({ name: '', age: '', condition: 'Stable' });
+  const [patientData, setPatientData] = useState({ name: '', age: '', condition: 'Stable', surgeonName: '', duration: 60 });
 
   const [dischargeBedId, setDischargeBedId] = useState<string | null>(null);
 
@@ -186,6 +187,28 @@ const AdminPanel = () => {
   useEffect(() => {
     fetchERPData();
   }, [fetchERPData]);
+
+  // Real-time WebSocket Logic
+  useEffect(() => {
+    const ws = new WebSocket("ws://localhost:8000/ws");
+
+    ws.onopen = () => console.log("Connected to Hospital OS Realtime Network");
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Listen for Surgery Updates or General Bed Updates
+        if (["SURGERY_UPDATE", "SURGERY_EXTENDED", "ROOM_RELEASED", "BED_UPDATE", "REFRESH_RESOURCES"].includes(data.type)) {
+          fetchERPData();
+          if (data.type === "SURGERY_UPDATE" && data.state === "DIRTY") {
+            toast(`Surgery Room ${data.bed_id} is now Dirty (Turnover)`, "info");
+          }
+        }
+      } catch (e) { console.error("WS Error", e); }
+    };
+
+    return () => ws.close();
+  }, [fetchERPData, toast]);
 
   const handleStartCleaning = async (bedId: string) => {
     try {
@@ -243,7 +266,7 @@ const AdminPanel = () => {
 
   const openAdmitModal = (bed: any) => {
     setSelectedBed(bed);
-    setPatientData({ name: '', age: '', condition: bed.condition || 'Stable' });
+    setPatientData({ name: '', age: '', condition: bed.condition || 'Stable', surgeonName: '', duration: 60 });
     setIsModalOpen(true);
   };
 
@@ -255,17 +278,35 @@ const AdminPanel = () => {
       return;
     }
     try {
-      const response = await fetch(endpoints.admit, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bed_id: String(selectedBed.id),
-          patient_name: patientData.name,
-          patient_age: Number(patientData.age),
-          condition: patientData.condition,
-          staff_id: currentStaffId
-        }),
-      });
+      let response;
+
+      if (selectedBed.type === 'Surgery') {
+        // Surgery Admission Flow
+        response = await fetch(endpoints.startSurgery, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bed_id: String(selectedBed.id),
+            patient_name: patientData.name,
+            patient_age: Number(patientData.age),
+            surgeon_name: patientData.surgeonName,
+            duration_minutes: Number(patientData.duration)
+          })
+        });
+      } else {
+        // Standard ICU/ER Admission
+        response = await fetch(endpoints.admit, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bed_id: String(selectedBed.id),
+            patient_name: patientData.name,
+            patient_age: Number(patientData.age),
+            condition: patientData.condition,
+            staff_id: currentStaffId
+          }),
+        });
+      }
 
       if (response.ok) {
         setIsModalOpen(false);
@@ -356,6 +397,8 @@ const AdminPanel = () => {
 
           {/* RIGHT COLUMN: FLEET & BEDS */}
           <div className="lg:col-span-8 space-y-8">
+            <SurgerySection beds={beds} onRefresh={fetchERPData} onAdmit={openAdmitModal} />
+
             <div className="bg-[#0a0a0a] rounded-3xl border border-white/10 p-6 overflow-hidden">
               <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-3">
                 <div className="p-2 bg-yellow-500/10 rounded-lg text-yellow-400"><Ambulance size={18} /></div>
@@ -460,6 +503,20 @@ const AdminPanel = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* Surgery Specific Fields */}
+                {selectedBed.type === 'Surgery' && (
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-indigo-400 uppercase ml-1">Surgeon Name</label>
+                      <input required placeholder="Dr. " className="w-full p-4 bg-indigo-500/10 border border-indigo-500/30 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-white placeholder:text-indigo-500/50" value={patientData.surgeonName} onChange={(e) => setPatientData({ ...patientData, surgeonName: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-indigo-400 uppercase ml-1">Duration (Min)</label>
+                      <input type="number" required placeholder="60" className="w-full p-4 bg-indigo-500/10 border border-indigo-500/30 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-white placeholder:text-indigo-500/50" value={patientData.duration} onChange={(e) => setPatientData({ ...patientData, duration: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                )}
                 <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-500 transition-all shadow-[0_0_30px_rgba(79,70,229,0.3)] mt-4 active:scale-[0.98] flex items-center justify-center gap-2 group">
                   AUTHORIZE ADMISSION <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
                 </button>

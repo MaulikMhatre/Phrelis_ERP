@@ -214,8 +214,8 @@ export default function DashboardPage() {
 
             {/* Free Beds Intelligence Card (Matches MetricCard CSS) */}
             <div className={`group relative backdrop-blur-xl p-8 rounded-[2.5rem] border transition-all duration-300 hover:border-indigo-500/30 ${(data.bed_stats.free_beds || 0) <= 2
-                ? "bg-rose-950/40 border-rose-500 text-rose-200 shadow-[0_0_40px_rgba(225,29,72,0.2)]"
-                : "bg-white/5 border-white/5 text-slate-300"
+              ? "bg-rose-950/40 border-rose-500 text-rose-200 shadow-[0_0_40px_rgba(225,29,72,0.2)]"
+              : "bg-white/5 border-white/5 text-slate-300"
               }`}>
               {/* Icon Container - Matches MetricCard styling */}
               <div className="inline-flex p-4 bg-white/5 rounded-2xl mb-8 text-indigo-500 group-hover:scale-110 transition-transform">
@@ -247,7 +247,7 @@ export default function DashboardPage() {
 
           {/* Visualizations Section */}
           <section className="space-y-14 pb-10">
-            <MindPredictions isSimulating={isSimulating} />
+            <MindPredictions />
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-14">
               <LiveHeatmap occupancy={data.occupancy} isSimulating={isSimulating} />
               <ResourceInventory resources={data.resources} isSimulating={isSimulating} />

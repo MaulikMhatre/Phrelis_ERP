@@ -6,13 +6,13 @@ import { Points, PointMaterial, Stars, Float } from "@react-three/drei";
 import * as random from "maath/random/dist/maath-random.cjs";
 
 function HelixDNA(props: any) {
-  const pointsRef = useRef<any>();
-  
-  const count = 4000; 
-  const radius = 2.5;   
-  const turns = 6;    
-  const length = 12;  
-  
+  const pointsRef = useRef<any>(null);
+
+  const count = 4000;
+  const radius = 2.5;
+  const turns = 6;
+  const length = 12;
+
   const [positions] = useState(() => {
     const pos = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
@@ -20,7 +20,7 @@ function HelixDNA(props: any) {
       const x = Math.cos(t) * radius;
       const z = Math.sin(t) * radius;
       const y = (i / count) * length - length / 2;
-      
+
       // Add some random noise/scatter
       pos[i * 3] = x + (Math.random() - 0.5) * 0.3;
       pos[i * 3 + 1] = y + (Math.random() - 0.5) * 0.3;
@@ -36,7 +36,7 @@ function HelixDNA(props: any) {
       const x = Math.cos(t) * radius;
       const z = Math.sin(t) * radius;
       const y = (i / count) * length - length / 2;
-      
+
       pos[i * 3] = x + (Math.random() - 0.5) * 0.3;
       pos[i * 3 + 1] = y + (Math.random() - 0.5) * 0.3;
       pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.3;
@@ -56,18 +56,18 @@ function HelixDNA(props: any) {
       <Points positions={positions} stride={3} frustumCulled={false} {...props}>
         <PointMaterial
           transparent
-          color="#06b6d4" 
+          color="#06b6d4"
           size={0.025}
           sizeAttenuation={true}
           depthWrite={false}
           opacity={0.8}
         />
       </Points>
-      
+
       <Points positions={positions2} stride={3} frustumCulled={false} {...props}>
         <PointMaterial
           transparent
-          color="#6366f1" 
+          color="#6366f1"
           size={0.025}
           sizeAttenuation={true}
           depthWrite={false}
@@ -79,7 +79,7 @@ function HelixDNA(props: any) {
 }
 
 function FloatingParticles() {
-  const ref = useRef<any>();
+  const ref = useRef<any>(null);
   const [sphere] = useState(() =>
     random.inSphere(new Float32Array(3000), { radius: 15 })
   );
@@ -93,7 +93,7 @@ function FloatingParticles() {
 
   return (
     <group rotation={[0, 0, Math.PI / 4]}>
-      <Points ref={ref} positions={sphere} stride={3} frustumCulled={false}>
+      <Points ref={ref} positions={sphere as any} stride={3} frustumCulled={false}>
         <PointMaterial
           transparent
           color="#ffffff"
@@ -112,16 +112,16 @@ export default function Background3D({ variant = "full" }: { variant?: "full" | 
     <div className="absolute inset-0 z-0 pointer-events-none">
       <Canvas camera={{ position: [0, 0, variant === "full" ? 8 : 12], fov: 60 }}>
         <ambientLight intensity={0.5} />
-        
+
         <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-           <HelixDNA />
+          <HelixDNA />
         </Float>
-        
+
         <FloatingParticles />
         <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-        
+
         {variant === "full" && (
-             <fog attach="fog" args={['#000000', 5, 25]} />
+          <fog attach="fog" args={['#000000', 5, 25]} />
         )}
       </Canvas>
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80" />

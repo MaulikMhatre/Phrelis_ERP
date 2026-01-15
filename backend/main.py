@@ -132,6 +132,17 @@ class PredictionCreate(BaseModel):
     target_department: str
     predicted_delay_minutes: int
 
+# Surgery Specific Models
+class SurgeryStartRequest(BaseModel):
+    bed_id: str
+    patient_name: str
+    patient_age: int
+    surgeon_name: str
+    duration_minutes: int
+
+class SurgeryExtendRequest(BaseModel):
+    additional_minutes: int
+
 #  Admin ERP Endpoints 
 
 
@@ -364,6 +375,151 @@ async def cleaning_complete(bed_id: str, db: Session = Depends(get_db)):
 
 
 
+# --- Surgery Unit Logic ---
+@app.post("/api/surgery/start")
+async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).first()
+    if not bed:
+        raise HTTPException(status_code=404, detail="Bed not found")
+    
+    # REQUIREMENT: Start Clock Logic
+    now = datetime.utcnow() 
+    
+    # REQUIREMENT: Save Identity Data
+    bed.patient_name = request.patient_name
+    bed.surgeon_name = request.surgeon_name
+    bed.patient_age = request.patient_age
+    
+    # Critical: This starts the duration timer
+    bed.admission_time = now
+    
+    bed.expected_end_time = now + timedelta(minutes=request.duration_minutes)
+    bed.current_state = "OCCUPIED"
+    bed.status = "OCCUPIED"
+    bed.is_occupied = True
+    
+    db.commit()
+    db.refresh(bed)
+
+    iso_time = bed.expected_end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + "Z"
+
+    await manager.broadcast({
+        "type": "SURGERY_UPDATE",
+        "bed_id": bed.id,
+        "state": "OCCUPIED",
+        "patient_name": bed.patient_name,
+        "expected_end_time": iso_time
+    })
+    return {"status": "started", "end_time": iso_time}
+
+@app.post("/api/surgery/extend/{bed_id}")
+async def extend_surgery(bed_id: str, request: SurgeryExtendRequest, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
+    if not bed: raise HTTPException(404, "Bed not found")
+    
+    now = datetime.utcnow()
+
+    # Logic: Extend the expected end time
+    if not bed.expected_end_time or bed.expected_end_time < now:
+        bed.expected_end_time = now + timedelta(minutes=request.additional_minutes)
+    else:
+        bed.expected_end_time = bed.expected_end_time + timedelta(minutes=request.additional_minutes)
+    
+    bed.current_state = "OCCUPIED"
+    bed.status = "OCCUPIED"
+
+    db.commit()
+    db.refresh(bed)
+
+    iso_time = bed.expected_end_time.isoformat() + "Z"
+
+    await manager.broadcast({
+        "type": "SURGERY_EXTENDED",
+        "bed_id": bed.id,
+        "state": "OCCUPIED",
+        "expected_end_time": iso_time
+    })
+    
+    return {"status": "extended", "new_end_time": iso_time}
+
+
+@app.post("/api/surgery/complete/{bed_id}")
+async def complete_surgery(bed_id: str, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
+    if not bed: 
+        raise HTTPException(404, "Bed not found")
+    
+    actual_end_time = datetime.utcnow()
+    
+    # REQUIREMENT: Calculate Duration based on admission_time
+    start_time = bed.admission_time if bed.admission_time else actual_end_time
+    total_duration = (actual_end_time - start_time).total_seconds() / 60
+    
+    overtime = 0
+    if bed.expected_end_time and actual_end_time > bed.expected_end_time:
+        overtime = (actual_end_time - bed.expected_end_time).total_seconds() / 60
+        
+    # REQUIREMENT: Create History Entry with Identity Data
+    history_entry = models.SurgeryHistory(
+        room_id=bed.id,
+        patient_name=bed.patient_name or "Unknown Patient",
+        patient_age=bed.patient_age,     # REQUIREMENT: Save Age
+        surgeon_name=bed.surgeon_name or "Unknown Surgeon", # REQUIREMENT: Save Surgeon
+        start_time=start_time,
+        end_time=actual_end_time,
+        total_duration_minutes=int(total_duration),
+        overtime_minutes=int(overtime) if overtime > 0 else 0
+    )
+    
+    # REQUIREMENT: Validation of DB Commit
+    try:
+        db.add(history_entry)
+        db.commit()
+    except Exception as e:
+        print(f"FAILED TO SAVE HISTORY: {e}")
+        db.rollback() 
+        # Continue with room release even if history fails, but log it.
+
+    # Transition to DIRTY for cleaning
+    bed.current_state = "DIRTY"
+    bed.status = "DIRTY"
+    
+    db.commit()
+    
+    await manager.broadcast({
+        "type": "SURGERY_UPDATE",
+        "bed_id": bed.id,
+        "state": "DIRTY"
+    })
+    return {"status": "completed_turnover_pending"}
+
+@app.post("/api/surgery/release/{bed_id}")
+async def release_surgery_room(bed_id: str, db: Session = Depends(get_db)):
+    bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
+    if not bed: 
+        raise HTTPException(404, "Bed not found")
+    
+    # FULL RESET of all fields to prevent data leaking to the next patient
+    bed.current_state = "AVAILABLE"
+    bed.status = "AVAILABLE"
+    bed.is_occupied = False
+    bed.patient_name = None
+    bed.patient_age = None
+    bed.surgeon_name = None
+    bed.admission_time = None 
+    bed.expected_end_time = None 
+    
+    db.commit()
+    
+    await manager.broadcast({
+        "type": "ROOM_RELEASED",
+        "bed_id": bed.id,
+        "state": "AVAILABLE",
+        "expected_end_time": None 
+    })
+    return {"status": "released"}
+
+
 @app.post("/api/triage/assess")
 async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
 
@@ -449,6 +605,16 @@ def get_history_by_day(target_date: date, db: Session = Depends(get_db)):
         func.date(models.PatientRecord.timestamp) == target_date
     ).order_by(models.PatientRecord.timestamp.desc()).all()
 
+@app.get("/api/history/surgery")
+def get_surgery_history(db: Session = Depends(get_db)):
+    try:
+        # Fetch records sorted by end_time (most recent first)
+        history = db.query(models.SurgeryHistory).order_by(models.SurgeryHistory.end_time.desc()).all()
+        return history
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail="Database error or missing table")
+
 @app.get("/api/erp/bed-info/{bed_id}")
 def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
@@ -476,7 +642,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     def get_count(unit_type: str):
         return db.query(models.BedModel).filter(
             models.BedModel.type == unit_type, 
-            models.BedModel.is_occupied == True
+           (models.BedModel.is_occupied == True) | (models.BedModel.status == "OCCUPIED")
         ).count()
 
     er_occ = get_count("ER")
