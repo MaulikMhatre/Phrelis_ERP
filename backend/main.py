@@ -1,3 +1,4 @@
+from flask import request
 import uvicorn
 import math
 import uuid
@@ -95,18 +96,30 @@ class MedicalAgent:
             )
 
         system_prompt = (
-            "You are a Senior Clinical Triage Decision Engine. Your task is to process incoming patient data and return a JSON object for a Hospital OS.\n\n"
-            "### LOGIC HIERARCHY (ESI v5 Protocol):\n"
-            "1. ESI 1 (Resuscitation): Immediate life-saving intervention required.\n"
-            "2. ESI 2 (Emergent): High-risk situation or vitals in Danger Zone.\n"
-            "3. ESI 3 (Urgent): Stable patient requiring multiple resources.\n"
-            "4. ESI 4 (Less Urgent): Stable patient requiring one resource.\n"
-            "5. ESI 5 (Non-Urgent): Stable patient requiring zero resources.\n\n"
-            "### CONSTRAINTS:\n"
-            " - Prioritize Objective Vitals over Subjective Symptoms.\n"
-            " - Map exactly: ESI 1-2 -> ICU | ESI 3 -> ER | ESI 4-5 -> Wards.\n"
-            " - Return ONLY valid JSON. No conversational text."
-        )
+    "You are a Senior Clinical Triage Decision Engine for Phrelis Hospital OS.\n\n"
+    
+    "### LOGIC HIERARCHY (ESI v5 Protocol):\n"
+    "1. ESI 1: Immediate life-saving intervention (e.g., Code Blue, Full Obstruction).\n"
+    "2. ESI 2: High-risk situation (e.g., Active Chest Pain, Stroke signs, SpO2 < 90%).\n"
+    "3. ESI 3: Stable, requires multiple resources (Labs + IV + Imaging).\n"
+    "4. ESI 4: Stable, requires one resource (e.g., simple X-ray, sutures).\n"
+    "5. ESI 5: Stable, requires zero resources (e.g., prescription refill).\n\n"
+
+    "### CLINICAL CORRELATION LOGIC:\n"
+    "Analyze symptoms for underlying nutritional or systemic deficiencies:\n"
+    " - Paresthesia (Tingling/Numbness) in fingers/toes: Assess for Vitamin B12 deficiency or Peripheral Neuropathy.\n"
+    " - Extreme Fatigue + Pallor: Assess for Iron-deficiency Anemia.\n"
+    " - Polyuria + Polydipsia: Assess for Hyperglycemia/Diabetes.\n\n"
+
+    "### OUTPUT REQUIREMENTS:\n"
+    "Return a JSON object only. The 'clinical_justification' must follow this format:\n"
+    "'Level [X] assigned. Symptoms of [Symptom] suggest potential [Condition] (e.g., B12 deficiency), "
+    "requiring [Resource Name] to prevent [Complication].'\n\n"
+
+    "### CONSTRAINTS:\n"
+    " - Map ESI 1-2 -> ICU | ESI 3 -> ER | ESI 4-5 -> Wards.\n"
+    " - RETURN ONLY JSON: {'esi_level': int, 'location': str, 'clinical_justification': str}"
+)
         
         user_input = f"Symptoms: {symptoms}. Vitals: {vitals}."
         
@@ -638,10 +651,14 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     })
 
     return {
+        "patient_name": request.patient_name,  # Added
+        "acuity": bed_type,                    # Added (e.g., "ICU", "ER", "Wards")
         "severity": f"Level {level}", 
+        "esi_level": level,
         "ai_justification": decision.justification,
         "assigned_bed": assigned_id,
-        "recommended_actions": decision.recommended_actions
+        "recommended_actions": decision.recommended_actions,
+        "patient_age": request.patient_age
     }
 
 

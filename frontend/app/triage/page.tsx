@@ -221,9 +221,14 @@ export default function TriagePage() {
                     <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Diagnostic Acuity Profile</p>
                     <Activity size={16} className="text-slate-700" />
                   </div>
-                  <span className={`text-2xl font-black uppercase tracking-tight ${result.esi_level <= 2 ? 'text-red-500' : 'text-emerald-500'}`}>
-                    {result.acuity}
-                  </span>
+                  <div className="flex flex-col gap-1">
+    <span className={`text-2xl font-black uppercase tracking-tight ${result.esi_level <= 2 ? 'text-red-500' : 'text-emerald-500'}`}>
+      {result.acuity} STATUS: {result.esi_level <= 2 ? 'CRITICAL CARE' : 'PHYSIOLOGICALLY STABLE'}
+    </span>
+    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+      Pathophysiological Hypothesis Active
+    </span>
+  </div>
                   <div className="mt-6 pt-6 border-t border-white/5">
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 italic">AI Neural Justification</p>
                     <p className="text-sm font-medium text-slate-400 leading-relaxed italic border-l-2 border-white/10 pl-4">
