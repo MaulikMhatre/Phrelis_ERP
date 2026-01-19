@@ -1,3 +1,4 @@
+from flask import request
 import uvicorn
 import math
 import uuid
@@ -97,18 +98,30 @@ class MedicalAgent:
             )
 
         system_prompt = (
-            "You are a Senior Clinical Triage Decision Engine. Your task is to process incoming patient data and return a JSON object for a Hospital OS.\n\n"
-            "### LOGIC HIERARCHY (ESI v5 Protocol):\n"
-            "1. ESI 1 (Resuscitation): Immediate life-saving intervention required.\n"
-            "2. ESI 2 (Emergent): High-risk situation or vitals in Danger Zone.\n"
-            "3. ESI 3 (Urgent): Stable patient requiring multiple resources.\n"
-            "4. ESI 4 (Less Urgent): Stable patient requiring one resource.\n"
-            "5. ESI 5 (Non-Urgent): Stable patient requiring zero resources.\n\n"
-            "### CONSTRAINTS:\n"
-            " - Prioritize Objective Vitals over Subjective Symptoms.\n"
-            " - Map exactly: ESI 1-2 -> ICU | ESI 3 -> ER | ESI 4-5 -> Wards.\n"
-            " - Return ONLY valid JSON. No conversational text."
-        )
+    "You are a Senior Clinical Triage Decision Engine for Phrelis Hospital OS.\n\n"
+    
+    "### LOGIC HIERARCHY (ESI v5 Protocol):\n"
+    "1. ESI 1: Immediate life-saving intervention (e.g., Code Blue, Full Obstruction).\n"
+    "2. ESI 2: High-risk situation (e.g., Active Chest Pain, Stroke signs, SpO2 < 90%).\n"
+    "3. ESI 3: Stable, requires multiple resources (Labs + IV + Imaging).\n"
+    "4. ESI 4: Stable, requires one resource (e.g., simple X-ray, sutures).\n"
+    "5. ESI 5: Stable, requires zero resources (e.g., prescription refill).\n\n"
+
+    "### CLINICAL CORRELATION LOGIC:\n"
+    "Analyze symptoms for underlying nutritional or systemic deficiencies:\n"
+    " - Paresthesia (Tingling/Numbness) in fingers/toes: Assess for Vitamin B12 deficiency or Peripheral Neuropathy.\n"
+    " - Extreme Fatigue + Pallor: Assess for Iron-deficiency Anemia.\n"
+    " - Polyuria + Polydipsia: Assess for Hyperglycemia/Diabetes.\n\n"
+
+    "### OUTPUT REQUIREMENTS:\n"
+    "Return a JSON object only. The 'clinical_justification' must follow this format:\n"
+    "'Level [X] assigned. Symptoms of [Symptom] suggest potential [Condition] (e.g., B12 deficiency), "
+    "requiring [Resource Name] to prevent [Complication].'\n\n"
+
+    "### CONSTRAINTS:\n"
+    " - Map ESI 1-2 -> ICU | ESI 3 -> ER | ESI 4-5 -> Wards.\n"
+    " - RETURN ONLY JSON: {'esi_level': int, 'location': str, 'clinical_justification': str}"
+)
         
         user_input = f"Symptoms: {symptoms}. Vitals: {vitals}."
         
@@ -665,33 +678,40 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     })
 
     return {
+        "patient_name": request.patient_name,  # Added
+        "acuity": bed_type,                    # Added (e.g., "ICU", "ER", "Wards")
         "patient_name": request.patient_name,
         "patient_age": request.patient_age,
+        "esi_level": level,
         "esi_level": level,
         "acuity": f"Priority {level}: {decision.acuity_label}",
         "assigned_bed": assigned_id,
         "ai_justification": decision.justification,
-        "recommended_actions": decision.recommended_actions
+        "recommended_actions": decision.recommended_actions,
+        "patient_age": request.patient_age
     }
 
 
 
 @app.get("/api/history/day/{target_date}")
 def get_history_by_day(target_date: date, db: Session = Depends(get_db)):
-    return db.query(models.PatientRecord).filter(
+    records = db.query(models.PatientRecord).filter(
         func.date(models.PatientRecord.timestamp) == target_date
     ).order_by(models.PatientRecord.timestamp.desc()).all()
+    
+    # Return directly; FastAPI's JSONEncoder handles Datetime objects 
+    # but ensure they include timezone info if possible.
+    return records
 
 @app.get("/api/history/surgery")
 def get_surgery_history(db: Session = Depends(get_db)):
     try:
-        # Fetch records sorted by end_time (most recent first)
+        # Fetching end_time for surgery
         history = db.query(models.SurgeryHistory).order_by(models.SurgeryHistory.end_time.desc()).all()
         return history
     except Exception as e:
-        print(f"Error fetching history: {e}")
-        raise HTTPException(status_code=500, detail="Database error or missing table")
-
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/api/erp/bed-info/{bed_id}")
 def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()

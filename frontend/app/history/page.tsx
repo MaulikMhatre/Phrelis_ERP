@@ -174,7 +174,22 @@ export default function HistoryPage() {
                       <motion.tr key={row.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="group hover:bg-white/[0.02] transition-colors">
                         <td className="p-6">
                           <span className="font-mono text-sm text-slate-400">
-                            {new Date(row.timestamp || row.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {(() => {
+      const rawDate = row.timestamp || row.end_time;
+      if (!rawDate) return "N/A";
+
+      // Append 'Z' if it's missing to force UTC interpretation
+      const dateStr = rawDate.endsWith('Z') ? rawDate : `${rawDate}Z`;
+      const dateObj = new Date(dateStr);
+
+      return isNaN(dateObj.getTime()) 
+        ? "TIME ERROR" 
+        : dateObj.toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+          });
+    })()}
                           </span>
                         </td>
                         <td className="p-6">
