@@ -55,6 +55,7 @@ class TriageDecision(BaseModel):
     esi_level: int = Field(..., ge=1, le=5, description="The ESI triage level")
     justification: str = Field(..., description="1-sentence clinical rationale")
     bed_type: str = Field(..., description="Recommended unit: ICU, ER, or Wards")
+    acuity_label: str = Field(..., description="Short clinical label e.g., 'Hemodynamically Unstable'")
     recommended_actions: List[str] = Field(..., description="List of immediate medical actions")
 
 class MedicalAgent:
@@ -91,6 +92,7 @@ class MedicalAgent:
                 esi_level=3, 
                 justification="Protocol fallback: AI offline.",
                 bed_type="ER",
+                acuity_label="Standard Priority",
                 recommended_actions=["Standard Vitals"]
             )
 
@@ -122,7 +124,8 @@ class MedicalAgent:
             return TriageDecision(
                 esi_level=3, 
                 justification="Safety fallback due to system error.", 
-                bed_type="ER", 
+                bed_type="ER",
+                acuity_label="System Alert",
                 recommended_actions=["Manual Triage Required"]
             )
 
@@ -160,12 +163,14 @@ class AdmissionRequest(BaseModel):
     bed_id: str
     patient_name: str
     patient_age: int
+    gender: str
     condition: str
     staff_id: str
 
 class TriageRequest(BaseModel):
     patient_name: str
     patient_age: int
+    gender: str
     symptoms: List[str]
     vitals: Optional[dict] = {}
 
@@ -290,6 +295,11 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
     
     if not bed:
         raise HTTPException(status_code=404, detail="Bed not found")
+    
+    if bed.unit == "Medical Ward" and bed.gender != "Any":
+        target_gender = "M" if request.gender in ["Male", "Other"] else "F"
+        if bed.gender != target_gender:
+            raise HTTPException(status_code=400, detail="Clinical Safety Alert: Gender mismatch for this ward.")
     
     # 2. Check if occupied
     if bed.is_occupied:
@@ -583,31 +593,45 @@ async def release_surgery_room(bed_id: str, db: Session = Depends(get_db)):
     })
     return {"status": "released"}
 
-
 @app.post("/api/triage/assess")
 async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
-    # 1. Ask Gemini for the clinical decision
+    # 1. Ask Gemini for clinical decision (ESI Level & Target Unit)
+    # Gemini returns "ICU", "ER", or "Wards"
     decision = await ai_agent.analyze_patient(request.symptoms, request.vitals)
     
     level = decision.esi_level
-    bed_type = decision.bed_type  # Gemini now returns "ICU", "ER", or "Wards"
+    bed_type = decision.bed_type 
     
-    # 2. Logic for critical systems
+    # 2. Gender Logic for Wards
+    # Requirements: 'Other' and 'Male' go to Male Ward ('M'). 'Female' goes to Female Ward ('F').
+    target_bed_gender = "M" if request.gender in ["Male", "Other"] else "F"
+    
+    # 3. Critical System Check (Ventilator Requirement)
     spo2 = request.vitals.get("spo2", 100)
     ventilator_needed = spo2 < 88 and level <= 2
     
-    # 3. Find Available Bed with Database Locking
-    bed = db.query(models.BedModel).filter(
+    # 4. Find Available Bed with Database Locking
+    query = db.query(models.BedModel).filter(
         models.BedModel.type == bed_type, 
         models.BedModel.is_occupied == False,
         models.BedModel.status == "AVAILABLE"
-    ).with_for_update(skip_locked=True).first()
+    )
 
-    # 4. Save Patient Record
+    # Apply Gender Constraint ONLY if the target is a Ward
+    # ICU and ER remain gender-neutral for emergency speed
+    if bed_type == "Wards":
+        query = query.filter(models.BedModel.gender == target_bed_gender)
+
+    # Use with_for_update to prevent race conditions during high-concurrency
+    bed = query.with_for_update(skip_locked=True).first()
+
+    # 5. Create Patient Record
+    new_patient_id = str(uuid.uuid4())
     new_record = models.PatientRecord(
-        id=str(uuid.uuid4()),
+        id=new_patient_id,
         esi_level=level,
         acuity=bed_type,
+        gender=request.gender, # Audit trail
         symptoms=request.symptoms,
         timestamp=datetime.utcnow(),
         patient_name=request.patient_name, 
@@ -617,6 +641,8 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     db.add(new_record)
 
     assigned_id = "WAITING_LIST"
+    
+    # 6. Final Allocation
     if bed:
         bed.is_occupied = True
         bed.status = "OCCUPIED"
@@ -625,22 +651,26 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         bed.ventilator_in_use = ventilator_needed
         assigned_id = bed.id
         
-        # Generate the smart worklist tasks
-        generate_smart_tasks(db, bed.id, bed.condition, patient_id=new_record.id)
+        # Trigger Smart Nursing Worklist tasks
+        generate_smart_tasks(db, bed.id, bed.condition, patient_id=new_patient_id)
 
     db.commit()
 
-    # 5. Notify the Hospital Dashboard
+    # 7. Real-time Broadcast to Dashboard
     await manager.broadcast({
         "type": "NEW_ADMISSION", 
         "bed_id": assigned_id,
+        "patient_gender": request.gender,
         "is_critical": level <= 2
     })
 
     return {
-        "severity": f"Level {level}", 
-        "ai_justification": decision.justification,
+        "patient_name": request.patient_name,
+        "patient_age": request.patient_age,
+        "esi_level": level,
+        "acuity": f"Priority {level}: {decision.acuity_label}",
         "assigned_bed": assigned_id,
+        "ai_justification": decision.justification,
         "recommended_actions": decision.recommended_actions
     }
 
@@ -913,18 +943,41 @@ def staff_dashboard(staff_id: str, db: Session = Depends(get_db)):
     }
 
 def initialize_hospital_beds(db: Session):
-    targets = [("ICU", "ICU", 20), ("ER", "ER", 60), ("Wards", "WARD", 100), ("Surgery", "SURG", 10)]
-    for unit, prefix, target in targets:
-        existing = db.query(models.BedModel).filter(models.BedModel.type == unit).all()
-        existing_ids = {b.id for b in existing}
-        to_add = []
-        for i in range(1, target + 1):
+    # Precise 190 Bed Distribution
+    targets = [
+        ("ICU", "ICU", 20), 
+        ("ER", "ER", 60), 
+        ("Surgery", "SURG", 10)
+    ]
+    
+    # 1. Seed Static Units
+    for unit, prefix, count in targets:
+        for i in range(1, count + 1):
             bid = f"{prefix}-{i}"
-            if bid not in existing_ids:
-                to_add.append(models.BedModel(id=bid, type=unit, is_occupied=False, status="AVAILABLE"))
-        if to_add:
-            db.add_all(to_add)
-            db.commit()
+            if not db.query(models.BedModel).filter(models.BedModel.id == bid).first():
+                db.add(models.BedModel(id=bid, type=unit, unit=unit, gender="Any", is_occupied=False, status="AVAILABLE"))
+
+    # 2. Seed 100 Ward Beds with Zone Distribution
+    if db.query(models.BedModel).filter(models.BedModel.type == "Wards").count() == 0:
+        # Medical Ward (40: 20M/20F)
+        for i in range(1, 21):
+            db.add(models.BedModel(id=f"WARD-MED-M-{i}", type="Wards", unit="Medical Ward", gender="M"))
+            db.add(models.BedModel(id=f"WARD-MED-F-{i}", type="Wards", unit="Medical Ward", gender="F"))
+        
+        # Specialty (30: 15 Ped / 15 Mat)
+        for i in range(1, 16):
+            db.add(models.BedModel(id=f"WARD-PED-{i}", type="Wards", unit="Pediatric", gender="Any"))
+            db.add(models.BedModel(id=f"WARD-MAT-{i}", type="Wards", unit="Maternity", gender="F"))
+            
+        # Recovery & Security (30)
+        for i in range(1, 11):
+            db.add(models.BedModel(id=f"WARD-HDU-{i}", type="Wards", unit="HDU", gender="Any"))
+            db.add(models.BedModel(id=f"WARD-DC-{i}", type="Wards", unit="Day Care", gender="Any"))
+        for i in range(1, 6):
+            db.add(models.BedModel(id=f"WARD-ISO-{i}", type="Wards", unit="Isolation", gender="Any"))
+            db.add(models.BedModel(id=f"WARD-SEMIP-{i}", type="Wards", unit="Semi-Private", gender="Any"))
+    
+    db.commit()
 
 @app.on_event("startup")
 def seed_db():

@@ -20,6 +20,7 @@ class BedModel(Base):
     vitals_snapshot = Column(String, nullable=True) 
     admission_time = Column(DateTime, default=datetime.utcnow)
     ventilator_in_use = Column(Boolean, default=False)
+    gender = Column(String, nullable=True) # M, F, or NULL (Any)
 
     # Surgery Unit Specific Fields
     current_state = Column(String, default="AVAILABLE") # AVAILABLE, OCCUPIED, OVERTIME, DIRTY, CLEANING
@@ -62,6 +63,7 @@ class PatientRecord(Base):
     id = Column(String, primary_key=True, index=True)
     esi_level = Column(Integer)
     acuity = Column(String)
+    gender = Column(String, nullable=True) # M, F, or Other
     symptoms = Column(JSON)
     timestamp = Column(DateTime, default=datetime.utcnow)
     bed_id = Column(String, ForeignKey("beds.id"), nullable=True)
