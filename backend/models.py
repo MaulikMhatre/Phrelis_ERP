@@ -158,3 +158,23 @@ class SurgeryHistory(Base):
     
     total_duration_minutes = Column(Integer)
     overtime_minutes = Column(Integer, default=0)
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    category = Column(String) 
+    quantity = Column(Integer, default=0)
+    reorder_level = Column(Integer, default=10)
+
+class InventoryLog(Base):
+    __tablename__ = "inventory_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("inventory_items.id"))
+    patient_name = Column(String)
+    bed_id = Column(String, nullable=True) # Matches BedModel.id
+    quantity_used = Column(Integer)
+    reason = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)

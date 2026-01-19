@@ -23,13 +23,34 @@ from jose import jwt
 
 
 from database import engine, get_db
+from database import engine, get_db
 import models
+from inventory_service import InventoryService # [NEW] Import Service
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 models.Base.metadata.create_all(bind=engine)
+
+# [NEW] Seed Inventory Data
+def seed_inventory():
+    db = next(get_db())
+    items = [
+        ("Ventilator Circuit", "ICU", 20, 5),
+        ("Sedation Kit", "ICU", 50, 10),
+        ("Trauma IV Kit", "ER", 30, 8),
+        ("Saline Pack", "General", 100, 20),
+        ("OR Prep Kit", "Surgery", 15, 3),
+        ("Sterile Gowns", "Surgery", 200, 25),
+        ("PPE Kit", "General", 100, 15)
+    ]
+    for name, cat, qty, reorder in items:
+        if not db.query(models.InventoryItem).filter_by(name=name).first():
+            db.add(models.InventoryItem(name=name, category=cat, quantity=qty, reorder_level=reorder))
+    db.commit()
+
+seed_inventory()
 
 app = FastAPI(title="PHRELIS Hospital OS")
 
@@ -367,6 +388,14 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
         
         # 5. Trigger Smart Worklist & Real-time Sync
         generate_smart_tasks(db, bed.id, request.condition, patient_id=new_patient_id)
+
+        # 6. INVENTORY SYNC
+        # Determine context based on bed type (ICU/ER/Wards)
+        inv_context = bed.type if bed.type in ["ICU", "ER"] else "Wards"
+        await InventoryService.process_usage(
+            db, manager, inv_context, 
+            {"patient_name": request.patient_name, "bed_id": bed.id, "condition": request.condition}
+        )
         
         await manager.broadcast({
             "type": "BED_UPDATE", 
@@ -518,6 +547,13 @@ async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_
         "patient_name": bed.patient_name,
         "expected_end_time": iso_time
     })
+
+    # [NEW] Inventory Hook
+    await InventoryService.process_usage(
+        db, manager, "Surgery", 
+        {"patient_name": bed.patient_name, "bed_id": bed.id, "condition": "Surgery Start"}
+    )
+
     return {"status": "started", "end_time": iso_time}
 
 @app.post("/api/surgery/extend/{bed_id}")
@@ -698,6 +734,21 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         "is_critical": level <= 2
     })
 
+    # [NEW] Inventory Hook for Triage Admissions
+    if bed:
+        # Determine context based on the assigned bed type
+        inv_context = bed.type if bed.type in ["ICU", "ER"] else "Wards"
+        
+        # Trigger inventory deduction shared logic
+        await InventoryService.process_usage(
+            db, manager, inv_context, 
+            {
+                "patient_name": request.patient_name, 
+                "bed_id": bed.id, 
+                "condition": new_record.condition # Contains "ESI X: Justification"
+            }
+        )
+
     return {
         "patient_name": request.patient_name,  # Added
         "acuity": bed_type,                    # Added (e.g., "ICU", "ER", "Wards")
@@ -753,6 +804,12 @@ def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
     }
 
 # --- Infrastructure ---
+
+# [NEW] Inventory Endpoint
+@app.get("/api/erp/inventory")
+def get_inventory(db: Session = Depends(get_db)):
+    return db.query(models.InventoryItem).all()
+
 
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(db: Session = Depends(get_db)):
