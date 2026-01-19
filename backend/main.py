@@ -26,6 +26,7 @@ from database import engine, get_db
 from database import engine, get_db
 import models
 from inventory_service import InventoryService # [NEW] Import Service
+from sqlalchemy import desc # For ordering logs
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -43,7 +44,9 @@ def seed_inventory():
         ("Saline Pack", "General", 100, 20),
         ("OR Prep Kit", "Surgery", 15, 3),
         ("Sterile Gowns", "Surgery", 200, 25),
-        ("PPE Kit", "General", 100, 15)
+        ("PPE Kit", "General", 100, 15),
+        ("Sanitization Kit", "General", 50, 15), # [NEW]
+        ("Bed Linens", "General", 100, 20)      # [NEW]
     ]
     for name, cat, qty, reorder in items:
         if not db.query(models.InventoryItem).filter_by(name=name).first():
@@ -483,6 +486,12 @@ async def start_cleaning(bed_id: str, db: Session = Depends(get_db)):
     bed.status = "CLEANING"
     db.commit()
     
+    # [NEW] Inventory Usage for Cleaning
+    await InventoryService.process_usage(
+        db, manager, "Cleaning", 
+        {"patient_name": "Bed Turnover", "bed_id": bed.id, "condition": "Standard Cleaning"}
+    )
+
     await manager.broadcast({
         "type": "BED_UPDATE", 
         "bed_id": bed.id, 
@@ -809,6 +818,68 @@ def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
 @app.get("/api/erp/inventory")
 def get_inventory(db: Session = Depends(get_db)):
     return db.query(models.InventoryItem).all()
+
+@app.get("/api/inventory/forecast")
+def get_inventory_forecast(db: Session = Depends(get_db)):
+    """
+    Predictive Engine: Calculates burn rate and exhaustion time.
+    """
+    # 1. Calculate Hospital Load Multiplier
+    total_beds = db.query(models.BedModel).count() or 1
+    occupied_beds = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).count()
+    occupancy_rate = occupied_beds / total_beds
+    
+    # Dynamic Weighting: Global 1.2x overhead if hospital is busy (>80%)
+    load_multiplier = 1.2 if occupancy_rate > 0.8 else 1.0
+    
+    items = db.query(models.InventoryItem).all()
+    forecast_data = []
+    
+    now = datetime.utcnow()
+    six_hours_ago = now - timedelta(hours=6)
+    
+    for item in items:
+        # 2. Historical Windowing (Last 6 Hours)
+        logs = db.query(models.InventoryLog).filter(
+            models.InventoryLog.item_id == item.id,
+            models.InventoryLog.timestamp >= six_hours_ago
+        ).all()
+        
+        total_used = sum(log.quantity_used for log in logs)
+        
+        # 3. Consumption Rate Calculation (Units per Hour)
+        # Avoid division by zero, default to minimal usage to prevent infinite exhaustion time
+        raw_burn_rate = total_used / 6.0
+        if raw_burn_rate == 0: raw_burn_rate = 0.1 # Baseline trickle
+            
+        # Apply Logic: Dynamic Weighting
+        adjusted_burn_rate = raw_burn_rate * load_multiplier
+        
+        # 4. Exhaustion Prediction
+        hours_remaining = 999.0
+        if adjusted_burn_rate > 0:
+            hours_remaining = item.quantity / adjusted_burn_rate
+            
+        # 5. Smart Alert Thresholds
+        status = "Normal"
+        if hours_remaining < 3:
+            status = "Critical" # Stockout Imminent
+        elif hours_remaining < 12:
+            status = "Warning" # Draft Reorder
+            
+        forecast_data.append({
+            "id": item.id,
+            "name": item.name,
+            "category": item.category,
+            "quantity": item.quantity,
+            "reorder_level": item.reorder_level,
+            "burn_rate": round(adjusted_burn_rate, 2),
+            "hours_remaining": round(hours_remaining, 1),
+            "status": status,
+            "load_multiplier": load_multiplier if occupancy_rate > 0.8 else 1.0 # For debugging/UI transparency
+        })
+        
+    return forecast_data
 
 
 @app.get("/api/dashboard/stats")

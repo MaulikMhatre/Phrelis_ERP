@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { Package, AlertTriangle, Activity, Box, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Package, AlertTriangle, Activity, Box, ChevronLeft, ChevronRight, X, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ResourceProps {
@@ -15,10 +15,14 @@ interface InventoryItem {
   category: string;
   quantity: number;
   reorder_level: number;
+  // New Forecast Fields
+  burn_rate: number;
+  hours_remaining: number;
+  status: "Normal" | "Warning" | "Critical";
 }
 
 const CircularProgress = ({ percentage, color }: { percentage: number, color: string }) => {
-  const radius = 24; // Increased size for impact
+  const radius = 24;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percentage / 100) * circumference;
 
@@ -60,9 +64,10 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
 
+  // [UPDATED] Fetch from Forecast Endpoint
   const fetchInventory = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/erp/inventory');
+      const res = await fetch('http://localhost:8000/api/inventory/forecast');
       if (res.ok) {
         const data = await res.json();
         setInventory(data);
@@ -133,12 +138,12 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
             </div>
             <div>
               <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Supply Chain Node</h2>
-              <p className="text-xs text-indigo-400/60 font-bold tracking-widest uppercase">Real-time Logistics & Inventory</p>
+              <p className="text-xs text-indigo-400/60 font-bold tracking-widest uppercase">Predictive Inventory Engine Active</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <div className={`w-2 h-2 rounded-full ${inventory.some(i => i.quantity < i.reorder_level) ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'} animate-pulse`} />
+              <div className={`w-2 h-2 rounded-full ${inventory.some(i => i.status === "Critical") ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'} animate-pulse`} />
               <span className="text-[9px] font-black text-emerald-400 uppercase tracking-wider">System Operational</span>
             </div>
             <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/5 rounded-xl transition-colors">
@@ -156,12 +161,21 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
                 `}</style>
 
           {inventory.map((item) => {
-            const isLow = item.quantity < item.reorder_level;
+            // Logic based on Forecast Status
+            const isCritical = item.status === "Critical";
+            const isWarning = item.status === "Warning";
+            const isLow = isCritical || isWarning;
+
             const percentage = Math.min((item.quantity / (item.reorder_level * 3)) * 100, 100);
-            const color = isLow ? 'text-rose-500' : 'text-emerald-500';
-            const borderColor = isLow ? 'border-rose-500/30' : 'border-slate-800';
-            const bg = isLow ? 'bg-rose-500/[0.03]' : 'bg-[#0f172a]';
-            const glow = isLow ? 'shadow-[0_0_30px_rgba(244,63,94,0.1)]' : 'hover:shadow-lg hover:shadow-indigo-500/5';
+
+            // Color Logic
+            let color = 'text-emerald-500';
+            if (isCritical) color = 'text-rose-500';
+            else if (isWarning) color = 'text-amber-500';
+
+            const borderColor = isLow ? (isCritical ? 'border-rose-500/30' : 'border-amber-500/30') : 'border-slate-800';
+            const bg = isLow ? (isCritical ? 'bg-rose-500/[0.03]' : 'bg-amber-500/[0.03]') : 'bg-[#0f172a]';
+            const glow = isCritical ? 'shadow-[0_0_30px_rgba(244,63,94,0.1)]' : (isWarning ? 'shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'hover:shadow-lg hover:shadow-indigo-500/5');
 
             return (
               <motion.div
@@ -171,11 +185,14 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
                 key={item.id}
                 className={`group relative p-6 rounded-3xl border ${borderColor} ${bg} ${glow} transition-all duration-300`}
               >
+                {/* Status Badge */}
                 {isLow && (
                   <div className="absolute top-0 right-0 p-4">
-                    <div className="flex items-center gap-2 px-3 py-1 bg-rose-500/20 border border-rose-500/30 rounded-lg animate-pulse">
-                      <AlertTriangle size={12} className="text-rose-500" />
-                      <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Critically Low</span>
+                    <div className={`flex items-center gap-2 px-3 py-1 border rounded-lg animate-pulse ${isCritical ? 'bg-rose-500/20 border-rose-500/30' : 'bg-amber-500/20 border-amber-500/30'}`}>
+                      <AlertTriangle size={12} className={isCritical ? "text-rose-500" : "text-amber-500"} />
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${isCritical ? "text-rose-400" : "text-amber-400"}`}>
+                        {isCritical ? "Stockout Imminent" : "Reorder Advised"}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -184,31 +201,44 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
                   <CircularProgress percentage={percentage} color={color} />
 
                   <div className="flex-1">
-                    <h3 className={`text-sm font-black uppercase tracking-widest mb-1 ${isLow ? 'text-rose-200' : 'text-slate-200'} group-hover:text-white transition-colors`}>{item.name}</h3>
+                    <h3 className={`text-sm font-black uppercase tracking-widest mb-1 ${isLow ? (isCritical ? 'text-rose-200' : 'text-amber-200') : 'text-slate-200'} group-hover:text-white transition-colors`}>{item.name}</h3>
 
                     <div className="flex justify-between items-end">
                       <div>
                         <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">{item.category}</p>
                         <div className="flex items-baseline gap-1">
                           <p className={`text-3xl font-black ${color} tracking-tighter`}>{item.quantity}</p>
-                          <span className="text-[10px] text-slate-600 font-bold uppercase">/ {item.reorder_level * 3} Units</span>
+                          <span className="text-[10px] text-slate-600 font-bold uppercase">/ {item.reorder_level * 3}</span>
                         </div>
                       </div>
                       <div className="hidden sm:block pb-1">
-                        <Sparkline color={isLow ? 'text-rose-500' : 'text-indigo-500'} />
+                        <Sparkline color={isCritical ? 'text-rose-500' : (isWarning ? 'text-amber-500' : 'text-indigo-500')} />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Footer Bar */}
+                {/* Analytical Footer */}
                 <div className="mt-4 flex justify-between items-center pt-4 border-t border-white/5">
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
-                    <Activity size={12} />
-                    <span className="uppercase tracking-wider">Consumption Velocity</span>
-                  </div>
-                  <div className={`text-[9px] font-black px-3 py-1 rounded-md uppercase tracking-wider ${isLow ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                    {isLow ? 'Reorder Immediate' : 'Optimal Flow'}
+                  {/* Dynamic Predictive Label */}
+                  {item.burn_rate > 0.1 ? (
+                    <div className="flex items-center gap-2">
+                      <Clock size={12} className={isCritical ? "text-rose-500" : (isWarning ? "text-amber-500" : "text-slate-500")} />
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${isCritical ? "text-rose-400" : (isWarning ? "text-amber-400" : "text-slate-500")}`}>
+                        {item.hours_remaining < 999
+                          ? `Exhaustion in ${item.hours_remaining} hrs`
+                          : "Supply Stable"}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
+                      <Activity size={12} />
+                      <span className="uppercase tracking-wider">Low Usage Detected</span>
+                    </div>
+                  )}
+
+                  <div className={`text-[9px] font-black px-3 py-1 rounded-md uppercase tracking-wider ${isCritical ? 'bg-rose-500/10 text-rose-400' : (isWarning ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400')}`}>
+                    {item.burn_rate.toFixed(1)} Units / Hr
                   </div>
                 </div>
               </motion.div>
@@ -218,7 +248,7 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
           {inventory.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center opacity-50 py-20">
               <Box size={48} className="text-indigo-500/50 mb-4 animate-bounce" />
-              <p className="text-sm font-black text-slate-500 uppercase tracking-widest">Linking Supply Chain...</p>
+              <p className="text-sm font-black text-slate-500 uppercase tracking-widest">Calculated Burn Rates...</p>
             </div>
           )}
         </div>
