@@ -191,27 +191,6 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <MetricCard label="Capacity" value={`${data.system_status.occupancy_rate}%`} icon={<Activity />} />
             <MetricCard label="Doctor Ratio" value={data.staff_ratio} icon={<Users />} />
-
-            {/* <div className={`relative p-8 rounded-[2.5rem] border transition-all duration-500 hover:border-indigo-500/30 group ${(data.bed_stats.free_beds || 0) <= 2
-                ? "bg-rose-950/40 border-rose-500 text-rose-200 shadow-[0_0_40px_rgba(225,29,72,0.2)]"
-                : "bg-white/5 border-white/10 text-slate-300"
-              }`}>
-              <BedDouble className="w-8 h-8 mb-4 opacity-50" />
-              <p className="text-[10px] font-black tracking-[.3em] uppercase opacity-60">Neural Availability</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-5xl font-black tracking-tighter">{data.bed_stats.free_beds || 0}</p>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Beds Free</p>
-              </div>
-              <div className="mt-4 h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(data.bed_stats.occupied / data.bed_stats.total) * 100}%` }}
-                  className={`h-full ${(data.bed_stats.free_beds || 0) <= 2 ? 'bg-rose-500' : 'bg-indigo-500'}`}
-                />
-              </div>
-            </div> */}
-
-
             {/* Free Beds Intelligence Card (Matches MetricCard CSS) */}
             <div className={`group relative backdrop-blur-xl p-8 rounded-[2.5rem] border transition-all duration-300 hover:border-indigo-500/30 ${(data.bed_stats.free_beds || 0) <= 2
               ? "bg-rose-950/40 border-rose-500 text-rose-200 shadow-[0_0_40px_rgba(225,29,72,0.2)]"
