@@ -23,17 +23,19 @@ const formatIST = (isoString: string) => {
 
 // --- SIMULATED ASSET DISTRIBUTION ---
 const getWardZone = (bedId: string): 'Medical' | 'Specialty' | 'Recovery' | 'Security' => {
-  const num = parseInt(bedId.split('-').pop() || '0');
-  if (num <= 40) return 'Medical';
-  if (num <= 70) return 'Specialty';
-  if (num <= 90) return 'Recovery';
+  const num = parseInt(bedId.replace(/^\D+/g, '') || '0');
+  if (num >= 1 && num <= 40) return 'Medical';
+  if (num >= 41 && num <= 70) return 'Specialty';
+  if (num >= 71 && num <= 90) return 'Recovery';
   return 'Security';
 };
 
 const getBedGender = (bedId: string): 'Male' | 'Female' | 'Any' => {
-  const num = parseInt(bedId.split('-').pop() || '0');
-  if (num <= 20) return 'Male';
-  if (num <= 40) return 'Female';
+  // Extract the number from IDs like "MED-1", "WARD-25", etc.
+  const num = parseInt(bedId.replace(/^\D+/g, '') || '0');
+
+  if (num >= 1 && num <= 20) return 'Male';
+  if (num >= 21 && num <= 40) return 'Female';
   return 'Any';
 };
 
@@ -298,11 +300,27 @@ const AdminPanel = () => {
     } catch { toast("System Error", "error"); }
   };
 
-  const getDisplayBeds = () => {
-    let filtered = beds.filter(b => b.type === activeUnit);
-    if (activeUnit === 'Wards') filtered = filtered.filter(b => getWardZone(b.id) === wardCategory);
-    return filtered;
-  };
+const getDisplayBeds = () => {
+  // 1. Get all beds belonging to the current major unit (e.g., 'Wards')
+  const unitBeds = beds.filter(b => b.type === activeUnit);
+
+  if (activeUnit === 'Wards') {
+    return unitBeds.filter(b => {
+      // Extract number from ID (e.g., "WARD-25" -> 25)
+      const num = parseInt(b.id.replace(/^\D+/g, '') || '0');
+      
+      // Strict range matching to prevent "doubling" into other ward categories
+      if (wardCategory === 'Medical') return num >= 1 && num <= 40;
+      if (wardCategory === 'Specialty') return num >= 41 && num <= 70;
+      if (wardCategory === 'Recovery') return num >= 71 && num <= 90;
+      if (wardCategory === 'Security') return num >= 91;
+      
+      return false;
+    });
+  }
+
+  return unitBeds;
+};
 
   const getUnitStats = (type: string) => {
     const unitBeds = beds.filter(b => b.type === type);
@@ -431,7 +449,21 @@ const AdminPanel = () => {
                 {activeUnit === 'Wards' && wardCategory === 'Medical' && getBedGender(selectedBed.id) !== 'Any' && getBedGender(selectedBed.id) !== patientData.gender && (
                   <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3"><ShieldAlert className="text-red-500" size={20} /><p className="text-xs font-bold text-red-200">Policy Violation: Reserved for {getBedGender(selectedBed.id)}.</p></div>
                 )}
-                <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-xl mt-4">CONFIRM ADMISSION</button>
+                <button
+                  type="submit"
+                  disabled={
+                    activeUnit === 'Wards' &&
+                    wardCategory === 'Medical' &&
+                    getBedGender(selectedBed.id) !== 'Any' &&
+                    getBedGender(selectedBed.id) !== patientData.gender
+                  }
+                  className={`w-full py-4 font-black rounded-xl mt-4 transition-all ${(activeUnit === 'Wards' && wardCategory === 'Medical' && getBedGender(selectedBed.id) !== 'Any' && getBedGender(selectedBed.id) !== patientData.gender)
+                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                      : 'bg-indigo-600 text-white'
+                    }`}
+                >
+                  CONFIRM ADMISSION
+                </button>
               </form>
             </motion.div>
           </div>
