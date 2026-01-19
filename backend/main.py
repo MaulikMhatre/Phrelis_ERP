@@ -1,6 +1,11 @@
 import uvicorn
 import math
 import uuid
+import os
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env file
+
 from datetime import timedelta
 from datetime import datetime
 from typing import List, Optional
@@ -9,7 +14,7 @@ from sqlalchemy import func
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from passlib.context import CryptContext
@@ -22,7 +27,7 @@ import models
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
-
+load_dotenv()
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="PHRELIS Hospital OS")
@@ -30,7 +35,8 @@ app = FastAPI(title="PHRELIS Hospital OS")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    # allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,24 +51,82 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class TriageDecision(BaseModel):
+    esi_level: int = Field(..., ge=1, le=5, description="The ESI triage level")
+    justification: str = Field(..., description="1-sentence clinical rationale")
+    bed_type: str = Field(..., description="Recommended unit: ICU, ER, or Wards")
+    recommended_actions: List[str] = Field(..., description="List of immediate medical actions")
+
 class MedicalAgent:
     def __init__(self):
-        try:
-
-            self.llm = ChatGoogleGenerativeAI(model="gemini-pro")
-            self.active = True
-        except:
-            self.active = False
+        # 2. GET API KEY EXPLICITLY
+        api_key = os.getenv("GOOGLE_API_KEY")
         
-    async def justify(self, level: int, symptoms: List[str]):
-        if not self.active: return "Protocol-based prioritization."
-        prompt = ChatPromptTemplate.from_template("Justify ESI Level {level} for {symptoms} in 1 sentence.")
-        chain = prompt | self.llm
+        # Validation for a "Perfect" setup
+        if not api_key or api_key == "your_api_key_here":
+            print("❌ CRITICAL ERROR: Google API Key is missing or invalid in .env")
+            self.active = False
+            return
+        
         try:
-            res = await chain.ainvoke({"level": level, "symptoms": symptoms})
-            return res.content
-        except: return "Acuity set by physiological markers."
+            # 3. PASS API KEY EXPLICITLY TO THE CONSTRUCTOR
+            # Use 'api_key' parameter to ensure LangChain receives it correctly
+            self.llm = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash", 
+                temperature=0,
+                api_key=api_key  # Pass it here explicitly
+            )
+            
+            # Using Structured Output for Senior Dev accuracy
+            self.structured_llm = self.llm.with_structured_output(TriageDecision)
+            self.active = True
+            print("✅ Medical AI Agent linked and active.")
+        except Exception as e:
+            print(f"❌ Initialization Failed: {e}")
+            self.active = False
+            
+    async def analyze_patient(self, symptoms: List[str], vitals: dict) -> TriageDecision:
+        if not self.active:
+            return TriageDecision(
+                esi_level=3, 
+                justification="Protocol fallback: AI offline.",
+                bed_type="ER",
+                recommended_actions=["Standard Vitals"]
+            )
 
+        system_prompt = (
+            "You are a Senior Clinical Triage Decision Engine. Your task is to process incoming patient data and return a JSON object for a Hospital OS.\n\n"
+            "### LOGIC HIERARCHY (ESI v5 Protocol):\n"
+            "1. ESI 1 (Resuscitation): Immediate life-saving intervention required.\n"
+            "2. ESI 2 (Emergent): High-risk situation or vitals in Danger Zone.\n"
+            "3. ESI 3 (Urgent): Stable patient requiring multiple resources.\n"
+            "4. ESI 4 (Less Urgent): Stable patient requiring one resource.\n"
+            "5. ESI 5 (Non-Urgent): Stable patient requiring zero resources.\n\n"
+            "### CONSTRAINTS:\n"
+            " - Prioritize Objective Vitals over Subjective Symptoms.\n"
+            " - Map exactly: ESI 1-2 -> ICU | ESI 3 -> ER | ESI 4-5 -> Wards.\n"
+            " - Return ONLY valid JSON. No conversational text."
+        )
+        
+        user_input = f"Symptoms: {symptoms}. Vitals: {vitals}."
+        
+        try:
+            # We call the structured LLM directly
+            return await self.structured_llm.ainvoke([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input}
+            ])
+        except Exception as e:
+            print(f"AI Execution Error: {e}")
+            # Reliable safety fallback for a medical app
+            return TriageDecision(
+                esi_level=3, 
+                justification="Safety fallback due to system error.", 
+                bed_type="ER", 
+                recommended_actions=["Manual Triage Required"]
+            )
+
+# 4. INITIALIZE THE AGENT AFTER LOAD_DOTENV()
 ai_agent = MedicalAgent()
 
 # Connection Manager for WebSockets 
@@ -522,82 +586,65 @@ async def release_surgery_room(bed_id: str, db: Session = Depends(get_db)):
 
 @app.post("/api/triage/assess")
 async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
-
-    level = 3 
-    if "chest pain" in request.symptoms or "stroke" in request.symptoms:
-        level = 1
-    elif "fever" in request.symptoms:
-        level = 4
+    # 1. Ask Gemini for the clinical decision
+    decision = await ai_agent.analyze_patient(request.symptoms, request.vitals)
     
-    acuity_text = "Resuscitation" if level == 1 else "Emergent" if level == 2 else "Urgent"
+    level = decision.esi_level
+    bed_type = decision.bed_type  # Gemini now returns "ICU", "ER", or "Wards"
     
-    bed_type = "ICU" if level <= 2 else "ER"
-    
-    # Ventilator Logic
+    # 2. Logic for critical systems
     spo2 = request.vitals.get("spo2", 100)
-    heart_rate = request.vitals.get("heart_rate", 80)
-    ventilator_needed = False
+    ventilator_needed = spo2 < 88 and level <= 2
     
-    if spo2 < 60 and heart_rate < 60:
-        ventilator_needed = True
-        acuity_text += " (Ventilator Required)"
-    
-    available_nurse = db.query(models.Staff).filter(models.Staff.is_clocked_in == True).first()
-    assigned_staff_id = available_nurse.id if available_nurse else "N-01" # Fallback ID
-
-    # 1. Save to History Table (PatientRecord)
-    new_record = models.PatientRecord(
-        id=str(uuid.uuid4()),
-        esi_level=level,
-        acuity=acuity_text,
-        symptoms=request.symptoms,
-        timestamp=datetime.utcnow(),
-        patient_name=request.patient_name, 
-        patient_age=request.patient_age,
-        assigned_staff=assigned_staff_id,
-        condition=f"Triaged: {acuity_text}"
-    )
-    db.add(new_record)
-
-    # 2. Auto-assign Bed
+    # 3. Find Available Bed with Database Locking
     bed = db.query(models.BedModel).filter(
         models.BedModel.type == bed_type, 
         models.BedModel.is_occupied == False,
         models.BedModel.status == "AVAILABLE"
-    ).first()
-    
-    justification = await ai_agent.justify(level, request.symptoms)
-    
-    assigned_id = None
+    ).with_for_update(skip_locked=True).first()
+
+    # 4. Save Patient Record
+    new_record = models.PatientRecord(
+        id=str(uuid.uuid4()),
+        esi_level=level,
+        acuity=bed_type,
+        symptoms=request.symptoms,
+        timestamp=datetime.utcnow(),
+        patient_name=request.patient_name, 
+        patient_age=request.patient_age,
+        condition=f"ESI {level}: {decision.justification}"
+    )
+    db.add(new_record)
+
+    assigned_id = "WAITING_LIST"
     if bed:
         bed.is_occupied = True
         bed.status = "OCCUPIED"
         bed.patient_name = request.patient_name
-        bed.patient_age = request.patient_age
-        bed.condition = f"Triaged: {acuity_text}"
-        bed.assigned_staff = assigned_staff_id
-        bed.admission_time = datetime.utcnow()
+        bed.condition = new_record.condition
         bed.ventilator_in_use = ventilator_needed
         assigned_id = bed.id
-    else:
-        assigned_id = "WAITING_LIST"
+        
+        # Generate the smart worklist tasks
+        generate_smart_tasks(db, bed.id, bed.condition, patient_id=new_record.id)
 
     db.commit()
 
+    # 5. Notify the Hospital Dashboard
     await manager.broadcast({
         "type": "NEW_ADMISSION", 
         "bed_id": assigned_id,
-        "patient_name": request.patient_name, 
         "is_critical": level <= 2
     })
 
     return {
-        "severity": acuity_text, 
-        "recommended_actions": ["Immediate Vitals", "ECG" if level == 1 else "Observation"],
+        "severity": f"Level {level}", 
+        "ai_justification": decision.justification,
         "assigned_bed": assigned_id,
-        "patient_name": request.patient_name,
-        "ai_justification": justification
+        "recommended_actions": decision.recommended_actions
     }
+
+
 
 @app.get("/api/history/day/{target_date}")
 def get_history_by_day(target_date: date, db: Session = Depends(get_db)):

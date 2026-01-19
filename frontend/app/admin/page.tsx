@@ -73,14 +73,17 @@ const CleaningTimer = ({ bedId, onRequestUnlock }: { bedId: string, onRequestUnl
 };
 const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accentColor }: any) => {
   const isRed = accentColor === 'red';
+  const isGreen = accentColor === 'green';
 
   // Restore original styling classes for occupied state
   const occupiedClass = isRed
     ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.1)]'
-    : 'bg-blue-500/10 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.1)]';
+    : isGreen
+      ? 'bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]'
+      : 'bg-blue-500/10 border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.1)]';
 
-  const textClass = isRed ? 'text-red-400' : 'text-blue-400';
-  const bgClass = isRed ? 'bg-red-500' : 'bg-blue-500';
+  const textClass = isRed ? 'text-red-400' : isGreen ? 'text-emerald-400' : 'text-blue-400';
+  const bgClass = isRed ? 'bg-red-500' : isGreen ? 'bg-emerald-500' : 'bg-blue-500';
 
   const handleManualUnlock = async () => {
     try {
@@ -425,17 +428,17 @@ const AdminPanel = () => {
 
             {/* BEDS SECTIONS */}
             <div className="space-y-8">
-              {['ICU', 'ER'].map(sectionType => (
+              {['ICU', 'ER', 'Wards'].map(sectionType => (
                 <div key={sectionType}>
                   <div className="flex justify-between items-center border-b border-white/10 pb-4 mb-6">
-                    <h2 className={`text-sm font-black uppercase tracking-widest flex items-center gap-2 ${sectionType === 'ICU' ? 'text-red-400' : 'text-blue-400'}`}>
-                      {sectionType === 'ICU' ? <Activity size={16} /> : <BedDouble size={16} />}
-                      {sectionType === 'ICU' ? 'Intensive Care Unit (ICU)' : 'Emergency Room (ER)'}
+                    <h2 className={`text-sm font-black uppercase tracking-widest flex items-center gap-2 ${sectionType === 'ICU' ? 'text-red-400' : sectionType === 'Wards' ? 'text-emerald-400' : 'text-blue-400'}`}>
+                      {sectionType === 'ICU' ? <Activity size={16} /> : sectionType === 'ER' ? <BedDouble size={16} /> : <Package size={16} />}
+                      {sectionType === 'ICU' ? 'Intensive Care Unit (ICU)' : sectionType === 'ER' ? 'Emergency Room (ER)' : 'General Wards'}
                     </h2>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
                     {beds.filter(b => b.type === sectionType).map(bed => (
-                      <BedCard key={bed.id} bed={bed} onDischarge={() => handleDischarge(bed.id)} onAdmit={() => openAdmitModal(bed)} onStartCleaning={handleStartCleaning} onRefresh={fetchERPData} accentColor={sectionType === 'ICU' ? 'red' : 'blue'} />
+                      <BedCard key={bed.id} bed={bed} onDischarge={() => handleDischarge(bed.id)} onAdmit={() => openAdmitModal(bed)} onStartCleaning={handleStartCleaning} onRefresh={fetchERPData} accentColor={sectionType === 'ICU' ? 'red' : sectionType === 'Wards' ? 'green' : 'blue'} />
                     ))}
                   </div>
                 </div>
