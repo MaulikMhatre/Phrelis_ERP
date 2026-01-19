@@ -1,4 +1,4 @@
-from flask import request
+
 import uvicorn
 import math
 import uuid
@@ -303,61 +303,82 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/erp/admit")
 async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)):
-    # 1. Find the bed
-    bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).first()
+    # 1. Find the bed with a lock to prevent double-booking
+    bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).with_for_update().first()
     
     if not bed:
         raise HTTPException(status_code=404, detail="Bed not found")
-    
-    if bed.unit == "Medical Ward" and bed.gender != "Any":
+
+    # 2. Robust Safety Checks
+    # Check Gender Compatibility for Medical Wards
+    if getattr(bed, 'unit', None) == "Medical Ward" and getattr(bed, 'gender', 'Any') != "Any":
+        # Standardizing input: 'Other' and 'Male' go to 'M'
         target_gender = "M" if request.gender in ["Male", "Other"] else "F"
         if bed.gender != target_gender:
-            raise HTTPException(status_code=400, detail="Clinical Safety Alert: Gender mismatch for this ward.")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Clinical Safety Alert: This bed is reserved for {bed.gender} patients."
+            )
     
-    # 2. Check if occupied
+    # Infection Control Override
+    infectious_keywords = ["fever", "cough", "contagious", "pathogen", "isolation", "infectious"]
+    is_infectious = any(k in request.condition.lower() for k in infectious_keywords)
+    
+    if is_infectious and getattr(bed, 'unit', None) != "Isolation":
+         raise HTTPException(
+             status_code=400, 
+             detail="Infection Control: Infectious patients must be admitted to an Isolation Unit."
+         )
+
+    # Occupancy check
     if bed.is_occupied:
          raise HTTPException(status_code=400, detail=f"Bed {bed.id} is already occupied.")
 
-    # 3. Update the bed data
+    # 3. Update Bed Data
     bed.is_occupied = True
     bed.patient_name = request.patient_name
     bed.condition = request.condition
-
-    
     bed.status = "OCCUPIED" 
+    bed.admission_time = datetime.utcnow() # Track for IST normalization
 
-    if hasattr(bed, 'age'): 
-        bed.patient_age = request.age
+    if hasattr(bed, 'patient_age'): 
+        bed.patient_age = request.patient_age
 
+    # 4. Create Persistent Patient Record
     new_patient_id = str(uuid.uuid4())
-    # 4. Create History Record
     new_record = models.PatientRecord(
         id=new_patient_id,
         bed_id=request.bed_id,
-        esi_level=3, # Default for direct admission
-        acuity="Admitted",
-        symptoms=["Direct Admission"],
+        gender=request.gender, # Save gender for the record
+        esi_level=3, 
+        acuity="Direct Admission",
+        symptoms=[request.condition],
         timestamp=datetime.utcnow(),
         patient_name=request.patient_name,
         patient_age=request.patient_age,
         condition=request.condition,
         assigned_staff=request.staff_id
     )
-    db.add(new_record)
-
-    db.commit()
-    db.refresh(bed)
     
-    generate_smart_tasks(db, request.bed_id, request.condition,patient_id=new_patient_id)
-    await manager.broadcast({
-        "type": "BED_UPDATE", 
-        "bed_id": bed.id, 
-        "new_status": "OCCUPIED",
-        "color_code": bed.get_color_code()
-    })
-    
-    return {"message": f"Patient admitted to {bed.id} and {request.staff_id} and Smart Worklist generated", "status": "success"}
-
+    try:
+        db.add(new_record)
+        db.commit()
+        db.refresh(bed)
+        
+        # 5. Trigger Smart Worklist & Real-time Sync
+        generate_smart_tasks(db, bed.id, request.condition, patient_id=new_patient_id)
+        
+        await manager.broadcast({
+            "type": "BED_UPDATE", 
+            "bed_id": bed.id, 
+            "new_status": "OCCUPIED",
+            "patient_gender": request.gender
+        })
+        
+        return {"message": "Admission Successful", "bed_id": bed.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database Sync Failed: {str(e)}")
 
 
 @app.post("/api/tasks/complete/{task_id}")
