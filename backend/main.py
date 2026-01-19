@@ -665,20 +665,23 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/history/day/{target_date}")
 def get_history_by_day(target_date: date, db: Session = Depends(get_db)):
-    return db.query(models.PatientRecord).filter(
+    records = db.query(models.PatientRecord).filter(
         func.date(models.PatientRecord.timestamp) == target_date
     ).order_by(models.PatientRecord.timestamp.desc()).all()
+    
+    # Return directly; FastAPI's JSONEncoder handles Datetime objects 
+    # but ensure they include timezone info if possible.
+    return records
 
 @app.get("/api/history/surgery")
 def get_surgery_history(db: Session = Depends(get_db)):
     try:
-        # Fetch records sorted by end_time (most recent first)
+        # Fetching end_time for surgery
         history = db.query(models.SurgeryHistory).order_by(models.SurgeryHistory.end_time.desc()).all()
         return history
     except Exception as e:
-        print(f"Error fetching history: {e}")
-        raise HTTPException(status_code=500, detail="Database error or missing table")
-
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/api/erp/bed-info/{bed_id}")
 def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()

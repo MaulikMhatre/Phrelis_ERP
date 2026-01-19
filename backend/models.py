@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, JSON, DateTime, Float ,
 from datetime import datetime
 from database import Base
 
+
 class BedModel(Base):
     __tablename__ = "beds"
     
@@ -63,7 +64,7 @@ class PatientRecord(Base):
     esi_level = Column(Integer)
     acuity = Column(String)
     symptoms = Column(JSON)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.now)
     bed_id = Column(String, ForeignKey("beds.id"), nullable=True)
     # New fields for history integration
     patient_name = Column(String, nullable=True)
