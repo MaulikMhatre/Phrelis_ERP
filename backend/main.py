@@ -46,14 +46,30 @@ def seed_inventory():
         ("Sterile Gowns", "Surgery", 200, 25),
         ("PPE Kit", "General", 100, 15),
         ("Sanitization Kit", "General", 50, 15), # [NEW]
-        ("Bed Linens", "General", 100, 20)      # [NEW]
+        ("Bed Linens", "General", 100, 20),      # [NEW]
+        ("Gloves", "OPD", 500, 50),              # [NEW]
+        ("Tongue Depressor", "OPD", 200, 20)     # [NEW]
     ]
     for name, cat, qty, reorder in items:
         if not db.query(models.InventoryItem).filter_by(name=name).first():
             db.add(models.InventoryItem(name=name, category=cat, quantity=qty, reorder_level=reorder))
     db.commit()
 
+def seed_doctor_rooms():
+    db = next(get_db())
+    rooms = [
+        ("Room-101", "Dr. Sharma"),
+        ("Room-102", "Dr. Varma"),
+        ("Room-103", "Dr. Iyer"),
+        ("Room-104", "Dr. Reddy")
+    ]
+    for r_id, name in rooms:
+        if not db.query(models.DoctorRoom).filter_by(id=r_id).first():
+            db.add(models.DoctorRoom(id=r_id, doctor_name=name, status="IDLE"))
+    db.commit()
+
 seed_inventory()
+seed_doctor_rooms()
 
 app = FastAPI(title="PHRELIS Hospital OS")
 
@@ -248,6 +264,15 @@ class SurgeryStartRequest(BaseModel):
 
 class SurgeryExtendRequest(BaseModel):
     additional_minutes: int
+
+# OPD Queue Models
+class QueueCheckInRequest(BaseModel):
+    patient_name: str
+    patient_age: int
+    gender: str
+    base_acuity: int # 1-5
+    vitals: dict # {hr, bp, spo2}
+    symptoms: List[str]
 
 #  Admin ERP Endpoints 
 
@@ -793,23 +818,147 @@ def get_surgery_history(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@app.get("/api/erp/bed-info/{bed_id}")
-def get_bed_info(bed_id: str, db: Session = Depends(get_db)):
-    bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
-    if not bed:
-        raise HTTPException(status_code=404, detail="Bed not found")
-        
+# --- OPD Triage & Queue Logic ---
+
+def calculate_priority_index(patient: models.PatientQueue):
+    """
+    ESI Score: (6 - baseAcuity) * 20 points.
+    Symptom Weights: Bonus points for 'Chest Pain' (+25), 'Shortness of Breath' (+20), 'Fever' (+10).
+    Wait-Time Compensation: +1 point for every 2 minutes spent in the queue.
+    """
+    score = (6 - patient.base_acuity) * 20
+    
+    # Symptom Bonuses
+    symptoms_lower = [s.lower() for s in (patient.symptoms or [])]
+    if any("chest pain" in s for s in symptoms_lower): score += 25
+    if any("shortness of breath" in s or "sob" in s for s in symptoms_lower): score += 20
+    if any("fever" in s for s in symptoms_lower): score += 10
+    
+    # Wait Time Compensation
+    wait_time_mins = (datetime.utcnow() - patient.check_in_time).total_seconds() / 60
+    score += (wait_time_mins // 2)
+    
+    return float(score)
+
+@app.post("/api/queue/checkin")
+async def queue_checkin(request: QueueCheckInRequest, db: Session = Depends(get_db)):
+    new_id = str(uuid.uuid4())
+    patient = models.PatientQueue(
+        id=new_id,
+        patient_name=request.patient_name,
+        patient_age=request.patient_age,
+        gender=request.gender,
+        base_acuity=request.base_acuity,
+        vitals=request.vitals,
+        symptoms=request.symptoms,
+        check_in_time=datetime.utcnow(),
+        status="WAITING"
+    )
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    
+    # Calculate initial score
+    patient.priority_score = calculate_priority_index(patient)
+    db.commit()
+    
+    await manager.broadcast({"type": "QUEUE_UPDATE"})
+    return {"status": "success", "patient_id": new_id}
+
+@app.get("/api/queue/sorted")
+def get_sorted_queue(db: Session = Depends(get_db)):
+    patients = db.query(models.PatientQueue).filter(models.PatientQueue.status == "WAITING").all()
+    
+    # Recalculate scores on the fly for real-time wait-time compensation
+    for p in patients:
+        p.priority_score = calculate_priority_index(p)
+    
+    db.commit() # Save updated scores
+    
+    # Re-fetch sorted (or just sort in memory)
+    sorted_patients = sorted(patients, key=lambda x: x.priority_score, reverse=True)
+    
+    # Add Surge Warning logic
+    avg_score = sum(p.priority_score for p in sorted_patients) / len(sorted_patients) if sorted_patients else 0
+    surge_warning = avg_score > 100 # Example threshold
+
     return {
-        "id": bed.id,
-        "type": bed.type,
-        "is_occupied": bed.is_occupied,
-        "ventilator_in_use": bed.ventilator_in_use,
-        "details": {
-            "name": bed.patient_name if bed.is_occupied else "Empty",
-            "age": bed.patient_age if bed.is_occupied else None,
-            "condition": bed.condition if bed.is_occupied else "No active condition",
-            "admitted_at": bed.admission_time.strftime("%Y-%m-%d %H:%M") if (bed.is_occupied and bed.admission_time) else None
-        }
+        "patients": sorted_patients,
+        "surge_warning": surge_warning,
+        "average_score": avg_score
+    }
+
+@app.get("/api/queue/rooms")
+def get_doctor_rooms(db: Session = Depends(get_db)):
+    return db.query(models.DoctorRoom).all()
+
+@app.post("/api/queue/call/{patient_id}")
+async def call_to_room(patient_id: str, room_id: str, db: Session = Depends(get_db)):
+    patient = db.query(models.PatientQueue).filter(models.PatientQueue.id == patient_id).first()
+    room = db.query(models.DoctorRoom).filter(models.DoctorRoom.id == room_id).first()
+    
+    if not patient or not room:
+        raise HTTPException(404, "Patient or Room not found")
+        
+    if room.status == "ACTIVE":
+        raise HTTPException(400, "Room is already active")
+
+    # Update Patient Status
+    patient.status = "CONSULTATION"
+    patient.assigned_room = room_id
+    
+    # Update Room Status
+    room.status = "ACTIVE"
+    room.current_patient_id = patient_id
+    
+    db.commit()
+    
+    # Trigger Inventory Hook for OPD Consumables
+    await InventoryService.process_usage(
+        db, manager, "OPD_Consultation", 
+        {"patient_name": patient.patient_name, "id": patient.id, "condition": "OPD Consult"}
+    )
+    
+    await manager.broadcast({"type": "QUEUE_UPDATE"})
+    await manager.broadcast({"type": "ROOM_UPDATE", "room_id": room_id, "status": "ACTIVE"})
+    
+    return {"status": "called"}
+
+@app.post("/api/queue/complete/{room_id}")
+async def complete_consultation(room_id: str, db: Session = Depends(get_db)):
+    room = db.query(models.DoctorRoom).filter(models.DoctorRoom.id == room_id).first()
+    if not room or room.status == "IDLE":
+        raise HTTPException(400, "Invalid room or room already idle")
+        
+    patient_id = room.current_patient_id
+    patient = db.query(models.PatientQueue).filter(models.PatientQueue.id == patient_id).first()
+    
+    if patient:
+        patient.status = "COMPLETED"
+        
+    room.status = "IDLE"
+    room.current_patient_id = None
+    
+    db.commit()
+    
+    await manager.broadcast({"type": "QUEUE_UPDATE"})
+    await manager.broadcast({"type": "ROOM_UPDATE", "room_id": room_id, "status": "IDLE"})
+    
+    return {"status": "completed"}
+
+@app.get("/api/external/capacity")
+def get_external_capacity(db: Session = Depends(get_db)):
+    """Anonymized bed availability and patient load data"""
+    total_beds = db.query(models.BedModel).count()
+    occupied_beds = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).count()
+    opd_waiting = db.query(models.PatientQueue).filter(models.PatientQueue.status == "WAITING").count()
+    
+    return {
+        "hospital_name": "Phrelis General",
+        "bed_capacity": total_beds,
+        "beds_available": total_beds - occupied_beds,
+        "opd_load": opd_waiting,
+        "timestamp": datetime.utcnow()
     }
 
 # --- Infrastructure ---
