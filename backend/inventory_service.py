@@ -5,7 +5,7 @@ import models
 
 class InventoryService:
     @staticmethod
-    def deduct_stock(db: Session, item_name: str, quantity: int, patient_name: str = "Unknown", bed_id: str = None, condition: str = None):
+    def deduct_stock(db: Session, item_name: str, quantity: int, patient_name: str = "Unknown", bed_id: str = None, condition: str = None, admission_uid: str = None):
         """
         Deducts stock for a specific item.
         Triggers a low stock alert if quantity falls below reorder level.
@@ -24,6 +24,7 @@ class InventoryService:
         # Log the usage
         log = models.InventoryLog(
             item_id=item.id,
+            admission_uid=admission_uid,
             patient_name=patient_name,
             bed_id=bed_id,
             quantity_used=deducted_qty,
@@ -45,14 +46,25 @@ class InventoryService:
         patient_name = patient_data.get("patient_name", "Unknown")
         bed_id = patient_data.get("bed_id")
         condition = patient_data.get("condition", "")
+        admission_uid = patient_data.get("admission_uid") # [NEW] uid for tracking
 
-        # 1. Determine Items based on Rules
-        if context == "ICU":
-            items_to_deduct.extend([("Ventilator Circuit", 1), ("Sedation Kit", 1)])
-        elif context == "ER":
-             items_to_deduct.extend([("Trauma IV Kit", 1), ("Saline Pack", 1)])
-        elif context.startswith("Surgery"):
-             items_to_deduct.extend([("OR Prep Kit", 1), ("Sterile Gowns", 2)])
+        # 1. Determine Items based on Department Category
+        # Mapping context to InventoryItem.category
+        mapping = {
+            "ICU": "ICU",
+            "ER": "ER",
+            "Wards": "General",
+            "Surgery": "Surgery"
+        }
+        
+        target_cat = mapping.get(context)
+        if not target_cat and context.startswith("Surgery"):
+            target_cat = "Surgery"
+            
+        if target_cat:
+            cat_items = db.query(models.InventoryItem).filter(models.InventoryItem.category == target_cat).all()
+            for item in cat_items:
+                items_to_deduct.append((item.name, 1)) # Standard Admission Kit: 1 of each
         elif context == "OPD_Consultation":
              items_to_deduct.extend([("Gloves", 2), ("Tongue Depressor", 1)])
 
@@ -67,7 +79,7 @@ class InventoryService:
         # 3. Process Executions
         alerts = []
         for item_name, qty in items_to_deduct:
-            updated_item, is_low = InventoryService.deduct_stock(db, item_name, qty, patient_name, bed_id, condition)
+            updated_item, is_low = InventoryService.deduct_stock(db, item_name, qty, patient_name, bed_id, condition, admission_uid)
             if updated_item and is_low:
                 alerts.append(updated_item)
 

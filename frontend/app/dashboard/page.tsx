@@ -9,6 +9,7 @@ import LiveHeatmap from "@/components/LiveHeatmap";
 import DashboardWidgets from "@/components/DashboardWidgets";
 import MindPredictions from "@/components/MindPredictions";
 
+
 // Icons
 import {
     Activity,
@@ -28,6 +29,7 @@ interface DashboardData {
     staff_ratio: string;
     resources: any;
     system_status: { diversion_active: boolean; occupancy_rate: number };
+    patients?: any[]; // [NEW]
 }
 
 export default function DashboardPage() {
@@ -84,6 +86,7 @@ export default function DashboardPage() {
                 }
             };
 
+            console.log("Dashboard Data Fetched:", json);
             setData(adaptedData);
 
             // Stress Score Calculation Logic
@@ -224,15 +227,18 @@ export default function DashboardPage() {
                         <StatusCard active={data.system_status.diversion_active} isSimulating={isSimulating} />
                     </div>
 
-                    {/* Visualizations Section */}
-                    <section className="space-y-14 pb-10">
-                        <MindPredictions />
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-14">
-                            <LiveHeatmap occupancy={data.occupancy} isSimulating={isSimulating} />
-                            <DashboardWidgets resources={data.resources} />
-                        </div>
-                    </section>
+                    {/* Patient List Intelligence */}
+                    
 
+                    {/* Visualizations Section */}
+                    <section className="grid grid-cols-1 xl:grid-cols-2 gap-14 pb-10">
+                         <div className="xl:col-span-2">
+                            <MindPredictions />
+                        </div>
+                        <LiveHeatmap occupancy={data.occupancy} isSimulating={isSimulating} />
+                        <DashboardWidgets resources={data.resources} />
+                       
+                    </section>
                 </div>
             </main>
         </motion.div>

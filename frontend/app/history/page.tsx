@@ -200,6 +200,7 @@ export default function HistoryPage() {
                   <tr className="border-b border-white/5 bg-white/[0.02]">
                     <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Timestamp</th>
                     <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Patient Identity</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Admission ID</th>
                     <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{activeTab === "CLINICAL" ? "Status" : activeTab === "SURGERY" ? "Surgeon" : "Clinical Intel"}</th>
                     <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{activeTab === "CLINICAL" ? "Triage Level" : activeTab === "SURGERY" ? "Duration" : "AI Rationale"}</th>
                     <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{activeTab === "CLINICAL" ? "Acuity" : activeTab === "SURGERY" ? "Overtime" : "Score"}</th>
@@ -235,6 +236,13 @@ export default function HistoryPage() {
                         <td className="p-6 relative">
                           <div className="font-bold text-slate-200 group-hover:text-white transition-colors text-lg">{row.patient_name || "Unknown Patient"}</div>
                           <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mt-1">Age: {row.patient_age} • {row.gender}</div>
+                        </td>
+                        <td className="p-6 relative">
+                          {row.admission_uid ? (
+                            <span className="font-mono text-xs text-indigo-400 font-bold">{row.admission_uid}</span>
+                          ) : (
+                            <span className="text-slate-600 text-xs italic">N/A</span>
+                          )}
                         </td>
                         <td className="p-6 relative">
                           {activeTab === "CLINICAL" && (

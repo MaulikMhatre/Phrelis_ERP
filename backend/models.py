@@ -8,6 +8,7 @@ class BedModel(Base):
     
     id = Column(String, primary_key=True, index=True) #  ICU-1
     type = Column(String)                             # ICU or ER
+    billing_category = Column(String, default="Ward") # Ward, Semi-Private, Private, ICU, ICU_Ventilator
     is_occupied = Column(Boolean, default=False)
     status = Column(String, default="AVAILABLE")      # AVAILABLE, OCCUPIED, DIRTY, CLEANING
     
@@ -173,6 +174,7 @@ class InventoryLog(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     item_id = Column(Integer, ForeignKey("inventory_items.id"))
+    admission_uid = Column(String, ForeignKey("admissions.admission_uid"), nullable=True) # [NEW] Link for billing
     patient_name = Column(String)
     bed_id = Column(String, nullable=True) # Matches BedModel.id
     quantity_used = Column(Integer)
@@ -195,8 +197,6 @@ class PatientQueue(Base):
     check_in_time = Column(DateTime, default=datetime.utcnow)
     status = Column(String, default="WAITING") # WAITING, CONSULTATION, COMPLETED
     priority_score = Column(Float, default=0.0)
-    assigned_room = Column(String, nullable=True)
-
 class DoctorRoom(Base):
     __tablename__ = "doctor_rooms"
     
@@ -204,3 +204,69 @@ class DoctorRoom(Base):
     doctor_name = Column(String)
     status = Column(String, default="IDLE") # IDLE, ACTIVE
     current_patient_id = Column(String, nullable=True)
+
+# --- FINANCIAL MODULE MODELS ---
+
+class PriceMaster(Base):
+    __tablename__ = "price_master"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    category = Column(String, index=True) # "BED", "SURGERY", "CONSULTATION", "CONSUMABLE"
+    name = Column(String, unique=True, index=True) # "ICU Bed", "Minor Surgery"
+    price = Column(Float)
+    gst_percent = Column(Float, default=0.0) # 0.0, 5.0, 12.0, 18.0
+    description = Column(String, nullable=True)
+
+class Admission(Base):
+    __tablename__ = "admissions"
+    
+    admission_uid = Column(String, primary_key=True, index=True) # Unique Admission ID (e.g., ADM-2023-001)
+    patient_id = Column(String, ForeignKey("patients.id")) 
+    bed_id = Column(String, ForeignKey("beds.id"))
+    
+    admission_time = Column(DateTime, default=datetime.utcnow)
+    discharge_time = Column(DateTime, nullable=True)
+    
+    status = Column(String, default="ACTIVE") # ACTIVE, DISCHARGED, SETTLED
+    total_amount = Column(Float, default=0.0)
+    
+    # Snapshot of patient details at admission for immutable record
+    patient_name = Column(String)
+    patient_age = Column(Integer)
+    
+class SurgeryLog(Base):
+    __tablename__ = "surgery_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    admission_uid = Column(String, ForeignKey("admissions.admission_uid"))
+    surgery_name = Column(String) # Linked to PriceMaster.name logically
+    price_at_time = Column(Float)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    notes = Column(String, nullable=True)
+
+class Bill(Base):
+    __tablename__ = "bills"
+    
+    bill_no = Column(String, primary_key=True, index=True) # BILL-YYYY-XXXX
+    admission_uid = Column(String, ForeignKey("admissions.admission_uid"))
+    
+    total_amount = Column(Float)
+    tax_amount = Column(Float)
+    grand_total = Column(Float)
+    
+    generated_at = Column(DateTime, default=datetime.utcnow)
+    is_paid = Column(Boolean, default=False)
+    payment_mode = Column(String, nullable=True)
+
+class BillItem(Base):
+    __tablename__ = "bill_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    bill_no = Column(String, ForeignKey("bills.bill_no"))
+    
+    description = Column(String) # "ICU Bed Charge (3 Days)", "Appendectomy"
+    quantity = Column(Float, default=1.0)
+    unit_price = Column(Float)
+    total_price = Column(Float) # qty * unit_price
+    tax_percent = Column(Float)
+    tax_amount = Column(Float)

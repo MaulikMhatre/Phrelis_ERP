@@ -28,10 +28,10 @@ export const endpoints = {
   ambulanceReset: (id: string) => `${API_BASE_URL}/api/ambulance/reset/${id}`,
 
   // Dashboard / Analytics
-  dashboardStats: 'http://127.0.0.1:8000/api/dashboard/stats',
+  dashboardStats: `${API_BASE_URL}/api/dashboard/stats`,
   insights: `${API_BASE_URL}/api/dashboard/insights`,
   predictions: `${API_BASE_URL}/api/predictions`,
-  predictInflow: `http://127.0.0.1:8000/api/predict-inflow`,
+  predictInflow: `${API_BASE_URL}/api/predict-inflow`,
   timeToCapacity: `${API_BASE_URL}/api/metrics/latency`,
   latencyMetrics: `${API_BASE_URL}/api/metrics/latency`,
 

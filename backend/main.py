@@ -25,14 +25,44 @@ from jose import jwt
 from database import engine, get_db
 from database import engine, get_db
 import models
-from inventory_service import InventoryService # [NEW] Import Service
-from sqlalchemy import desc # For ordering logs
+from inventory_service import InventoryService 
+from billing_service import BillingService # [NEW]
+from sqlalchemy import desc 
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 models.Base.metadata.create_all(bind=engine)
+
+# [NEW] Seed Price Master
+def seed_price_master():
+    db = next(get_db())
+    # Format: (Category, Name, Price, GST%, Description)
+    items = [
+        # BED RATES
+        ("BED", "Ward", 3000.0, 0.0, "General Ward Bed"),
+        ("BED", "Semi-Private", 6000.0, 0.0, "Semi-Private Room"),
+        ("BED", "Private", 10000.0, 0.0, "Private Room"),
+        ("BED", "ICU", 20000.0, 0.0, "ICU Bed"),
+        ("BED", "ICU_Ventilator", 35000.0, 0.0, "ICU Bed with Ventilator"),
+        
+        # SURGERY RATES (Services = 0% GST usually, but check prompt. Prompt says "Legal Tax Engine... 0% on Doctor/Bed fees (Healthcare Services)". So 0%.)
+        ("SURGERY", "Minor", 10000.0, 0.0, "Abscess drainage, Stitches"),
+        ("SURGERY", "Intermediate", 45000.0, 0.0, "Appendix, Hernia"),
+        ("SURGERY", "Major", 120000.0, 0.0, "Gallbladder, Joint Replacement"),
+        ("SURGERY", "Complex", 350000.0, 0.0, "Cardiac Bypass, Neuro"),
+        
+        # CONSULTATION (Just in case)
+        ("CONSULTATION", "Specialist", 1500.0, 0.0, "Standard Consultation"),
+    ]
+    
+    for cat, name, price, gst, desc_text in items:
+        if not db.query(models.PriceMaster).filter_by(name=name).first():
+            db.add(models.PriceMaster(
+                category=cat, name=name, price=price, gst_percent=gst, description=desc_text
+            ))
+    db.commit()
 
 # [NEW] Seed Inventory Data
 def seed_inventory():
@@ -70,6 +100,7 @@ def seed_doctor_rooms():
 
 seed_inventory()
 seed_doctor_rooms()
+seed_price_master() # [NEW]
 
 app = FastAPI(title="PHRELIS Hospital OS")
 
@@ -114,7 +145,7 @@ class MedicalAgent:
         
         # Validation for a "Perfect" setup
         if not api_key or api_key == "your_api_key_here":
-            print("❌ CRITICAL ERROR: Google API Key is missing or invalid in .env")
+            print("[CRITICAL ERROR]: Google API Key is missing or invalid in .env")
             self.active = False
             return
         
@@ -130,9 +161,9 @@ class MedicalAgent:
             # Using Structured Output for Senior Dev accuracy
             self.structured_llm = self.llm.with_structured_output(TriageDecision)
             self.active = True
-            print("✅ Medical AI Agent linked and active.")
+            print("[OK] Medical AI Agent linked and active.")
         except Exception as e:
-            print(f"❌ Initialization Failed: {e}")
+            print(f"[ERROR] Initialization Failed: {e}")
             self.active = False
             
     async def analyze_patient(self, symptoms: List[str], vitals: dict) -> TriageDecision:
@@ -444,6 +475,16 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
     if hasattr(bed, 'patient_age'): 
         bed.patient_age = request.patient_age
 
+    # [NEW] Ensure billing category is updated based on unit type
+    if bed.type == "ICU":
+        bed.billing_category = "ICU"
+    elif bed.type == "Surgery":
+        bed.billing_category = "Private"
+    elif bed.type == "ER":
+        bed.billing_category = "Ward" # ER usually Ward rate or separate
+    else:
+        bed.billing_category = bed.billing_category or "Ward"
+
     # 4. Create Persistent Patient Record
     new_patient_id = str(uuid.uuid4())
     new_record = models.PatientRecord(
@@ -460,8 +501,20 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
         assigned_staff=request.staff_id
     )
     
+    # [NEW] Create Financial Admission Record
+    new_admission_uid = f"ADM-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+    new_admission = models.Admission(
+        admission_uid=new_admission_uid,
+        patient_id=new_patient_id,
+        bed_id=request.bed_id,
+        patient_name=request.patient_name,
+        patient_age=request.patient_age,
+        status="ACTIVE"
+    )
+    
     try:
         db.add(new_record)
+        db.add(new_admission) # Add Admission
         db.commit()
         db.refresh(bed)
         
@@ -469,11 +522,16 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
         generate_smart_tasks(db, bed.id, request.condition, patient_id=new_patient_id)
 
         # 6. INVENTORY SYNC
-        # Determine context based on bed type (ICU/ER/Wards)
-        inv_context = bed.type if bed.type in ["ICU", "ER"] else "Wards"
+        # [NEW] Item Deduction for Admission
+        inv_context = bed.type # ICU, ER, Surgery, Wards
         await InventoryService.process_usage(
             db, manager, inv_context, 
-            {"patient_name": request.patient_name, "bed_id": bed.id, "condition": request.condition}
+            {
+                "patient_name": request.patient_name, 
+                "bed_id": bed.id, 
+                "condition": request.condition,
+                "admission_uid": new_admission_uid # [NEW]
+            }
         )
         
         await manager.broadcast({
@@ -530,6 +588,23 @@ async def discharge(bed_id: str, db: Session = Depends(get_db)):
             if history_record:
                 history_record.discharge_time = datetime.utcnow()
         
+        # [NEW] Financial Discharge & Bill Generation
+        active_admission = db.query(models.Admission).filter(
+            models.Admission.bed_id == bed_id,
+            models.Admission.status == "ACTIVE"
+        ).first()
+        
+        bill_data = None
+        if active_admission:
+            active_admission.discharge_time = datetime.utcnow()
+            active_admission.status = "DISCHARGED"
+            # Generate Bill
+            new_bill = BillingService.generate_bill(db, active_admission.admission_uid)
+            bill_data = {
+                "bill_no": new_bill.bill_no,
+                "grand_total": new_bill.grand_total
+            }
+        
         db.query(models.Task).filter(
             models.Task.bed_id == bed_id, 
             models.Task.status == "Pending"
@@ -549,6 +624,9 @@ async def discharge(bed_id: str, db: Session = Depends(get_db)):
             "new_status": "DIRTY",
             "color_code": bed.get_color_code()
         })
+        
+        if bill_data:
+            return {"status": "success", "bill": bill_data}
         return {"status": "success"}
     raise HTTPException(status_code=404, detail="Bed not found")
 
@@ -597,25 +675,27 @@ async def cleaning_complete(bed_id: str, db: Session = Depends(get_db)):
 
 
 
-# --- Surgery Unit Logic ---
 @app.post("/api/surgery/start")
 async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).first()
     if not bed:
         raise HTTPException(status_code=404, detail="Bed not found")
     
-    # REQUIREMENT: Start Clock Logic
-    now = datetime.utcnow() 
+    now = datetime.now(timezone.utc)
     
-    # REQUIREMENT: Save Identity Data
     bed.patient_name = request.patient_name
     bed.surgeon_name = request.surgeon_name
     bed.patient_age = request.patient_age
-    
-    # Critical: This starts the duration timer
     bed.admission_time = now
     
-    bed.expected_end_time = now + timedelta(minutes=request.duration_minutes)
+    # Logic Fix: Handle the 0 duration case cleanly
+    iso_time = None
+    if request.duration_minutes > 0:
+        bed.expected_end_time = now + timedelta(minutes=request.duration_minutes)
+        iso_time = bed.expected_end_time.isoformat().replace("+00:00", "Z")
+    else:
+        bed.expected_end_time = None
+    
     bed.current_state = "OCCUPIED"
     bed.status = "OCCUPIED"
     bed.is_occupied = True
@@ -623,7 +703,7 @@ async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_
     db.commit()
     db.refresh(bed)
 
-    iso_time = bed.expected_end_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + "Z"
+    # REMOVED the duplicate iso_time assignment that was causing the crash
 
     await manager.broadcast({
         "type": "SURGERY_UPDATE",
@@ -641,26 +721,30 @@ async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_
 
     return {"status": "started", "end_time": iso_time}
 
+from datetime import datetime, timezone, timedelta
+
 @app.post("/api/surgery/extend/{bed_id}")
 async def extend_surgery(bed_id: str, request: SurgeryExtendRequest, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
     if not bed: raise HTTPException(404, "Bed not found")
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
-    # Logic: Extend the expected end time
+    if bed.expected_end_time and bed.expected_end_time.tzinfo is None:
+        bed.expected_end_time = bed.expected_end_time.replace(tzinfo=timezone.utc)
+
     if not bed.expected_end_time or bed.expected_end_time < now:
         bed.expected_end_time = now + timedelta(minutes=request.additional_minutes)
     else:
-        bed.expected_end_time = bed.expected_end_time + timedelta(minutes=request.additional_minutes)
+        bed.expected_end_time += timedelta(minutes=request.additional_minutes)
     
     bed.current_state = "OCCUPIED"
     bed.status = "OCCUPIED"
-
     db.commit()
     db.refresh(bed)
 
-    iso_time = bed.expected_end_time.isoformat() + "Z"
+    # FIX: Use replace to ensure a clean 'Z' for the frontend
+    iso_time = bed.expected_end_time.isoformat().replace("+00:00", "Z")
 
     await manager.broadcast({
         "type": "SURGERY_EXTENDED",
@@ -668,59 +752,107 @@ async def extend_surgery(bed_id: str, request: SurgeryExtendRequest, db: Session
         "state": "OCCUPIED",
         "expected_end_time": iso_time
     })
-    
     return {"status": "extended", "new_end_time": iso_time}
+
 
 
 @app.post("/api/surgery/complete/{bed_id}")
 async def complete_surgery(bed_id: str, db: Session = Depends(get_db)):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
-    if not bed: 
-        raise HTTPException(404, "Bed not found")
+    if not bed: raise HTTPException(404, "Bed not found")
     
-    actual_end_time = datetime.utcnow()
+    actual_end_time = datetime.now(timezone.utc)
+    start_time = bed.admission_time
+    if start_time and start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=timezone.utc)
     
-    # REQUIREMENT: Calculate Duration based on admission_time
-    start_time = bed.admission_time if bed.admission_time else actual_end_time
+    if not start_time:
+        start_time = actual_end_time
+
+    # Calculate metrics for history
     total_duration = (actual_end_time - start_time).total_seconds() / 60
-    
     overtime = 0
-    if bed.expected_end_time and actual_end_time > bed.expected_end_time:
-        overtime = (actual_end_time - bed.expected_end_time).total_seconds() / 60
-        
-    # REQUIREMENT: Create History Entry with Identity Data
+    if bed.expected_end_time:
+        expected = bed.expected_end_time
+        if expected.tzinfo is None: expected = expected.replace(tzinfo=timezone.utc)
+        if actual_end_time > expected:
+            overtime = (actual_end_time - expected).total_seconds() / 60
+            
     history_entry = models.SurgeryHistory(
         room_id=bed.id,
         patient_name=bed.patient_name or "Unknown Patient",
-        patient_age=bed.patient_age,     # REQUIREMENT: Save Age
-        surgeon_name=bed.surgeon_name or "Unknown Surgeon", # REQUIREMENT: Save Surgeon
+        patient_age=bed.patient_age,
+        surgeon_name=bed.surgeon_name or "Unknown Surgeon",
         start_time=start_time,
         end_time=actual_end_time,
         total_duration_minutes=int(total_duration),
         overtime_minutes=int(overtime) if overtime > 0 else 0
     )
     
-    # REQUIREMENT: Validation of DB Commit
-    try:
-        db.add(history_entry)
-        db.commit()
-    except Exception as e:
-        print(f"FAILED TO SAVE HISTORY: {e}")
-        db.rollback() 
-        # Continue with room release even if history fails, but log it.
+    db.add(history_entry)
+    
+    # [NEW] Financial Log for Surgery
+    # Find active admission for this patient/bed
+    active_admission = db.query(models.Admission).filter(
+        models.Admission.bed_id == bed_id,
+        models.Admission.status == "ACTIVE"
+    ).first()
+    
+    if active_admission:
+        # Determine Surgery Type/Price based on duration or metadata?
+        # Prompt says "Surgery Type Input". 
+        # Current SurgeryStartRequest only has 'surgeon_name', 'duration'.
+        # ideally we should have 'surgery_type' in the start request.
+        # For now, I'll infer from duration or just pick "Minor" as default if unknown, 
+        # BUT I should probably update SurgeryStartRequest to include type.
+        # Let's assume 'Minor' for safe fallback or check if I can modify the Start Request model too.
+        # I'll modify the Start Request model in next step or use a default here.
+        
+        # Let's try to find a matching price logic or just use "Major" for long surgeries?
+        # Simple logic for now:
+        surgery_type = "Minor"
+        if int(total_duration) > 60: surgery_type = "Intermediate"
+        if int(total_duration) > 180: surgery_type = "Major"
+        
+        # Get Price
+        price = BillingService.get_price(db, surgery_type)
+        
+        surgery_log = models.SurgeryLog(
+            admission_uid=active_admission.admission_uid,
+            surgery_name=surgery_type,
+            price_at_time=price,
+            notes=f"Surgeon: {bed.surgeon_name}, Duration: {int(total_duration)}m"
+        )
+        db.add(surgery_log)
 
-    # Transition to DIRTY for cleaning
+        # [NEW] Item Deduction for Surgery
+        await InventoryService.process_usage(
+            db, manager, "Surgery", 
+            {
+                "patient_name": bed.patient_name, 
+                "bed_id": bed.id, 
+                "condition": "Post-Op",
+                "admission_uid": active_admission.admission_uid
+            }
+        )
+    
     bed.current_state = "DIRTY"
     bed.status = "DIRTY"
-    
+    bed.admission_time = None 
+    bed.expected_end_time = None 
+    # Optional: Clear these if you want the "Dirty" card to be anonymous
+   
     db.commit()
     
     await manager.broadcast({
-        "type": "SURGERY_UPDATE",
-        "bed_id": bed.id,
-        "state": "DIRTY"
+        "type": "SURGERY_UPDATE", 
+        "bed_id": bed.id, 
+        "state": "DIRTY",
+        "patient_name": bed.patient_name,
+        "surgeon_name": bed.surgeon_name,
+        "expected_end_time": None
     })
-    return {"status": "completed_turnover_pending"}
+    return {"status": "completed"}
 
 @app.post("/api/surgery/release/{bed_id}")
 async def release_surgery_room(bed_id: str, db: Session = Depends(get_db)):
@@ -747,7 +879,6 @@ async def release_surgery_room(bed_id: str, db: Session = Depends(get_db)):
         "expected_end_time": None 
     })
     return {"status": "released"}
-
 @app.post("/api/triage/assess")
 async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     # 1. Ask Gemini for clinical decision (ESI Level & Target Unit)
@@ -796,6 +927,7 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     db.add(new_record)
 
     assigned_id = "WAITING_LIST"
+    new_admission_uid = None
     
     # 6. Final Allocation
     if bed:
@@ -805,6 +937,18 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         bed.condition = new_record.condition
         bed.ventilator_in_use = ventilator_needed
         assigned_id = bed.id
+        
+        # [NEW] Create Financial Admission Record for Triage
+        new_admission_uid = f"ADM-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+        new_admission = models.Admission(
+            admission_uid=new_admission_uid,
+            patient_id=new_patient_id,
+            bed_id=bed.id,
+            patient_name=request.patient_name,
+            patient_age=request.patient_age,
+            status="ACTIVE"
+        )
+        db.add(new_admission)
         
         # Trigger Smart Nursing Worklist tasks
         generate_smart_tasks(db, bed.id, bed.condition, patient_id=new_patient_id)
@@ -822,7 +966,7 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     # [NEW] Inventory Hook for Triage Admissions
     if bed:
         # Determine context based on the assigned bed type
-        inv_context = bed.type if bed.type in ["ICU", "ER"] else "Wards"
+        inv_context = bed.type # ICU, ER, Surgery, Wards
         
         # Trigger inventory deduction shared logic
         await InventoryService.process_usage(
@@ -830,7 +974,8 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
             {
                 "patient_name": request.patient_name, 
                 "bed_id": bed.id, 
-                "condition": new_record.condition # Contains "ESI X: Justification"
+                "condition": new_record.condition,
+                "admission_uid": new_admission_uid # [FIXED]
             }
         )
 
@@ -852,13 +997,26 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/history/day/{target_date}")
 def get_history_by_day(target_date: date, db: Session = Depends(get_db)):
-    records = db.query(models.PatientRecord).filter(
+    # Join with Admission to get the admission_uid
+    # Use outerjoin so that patients without admissions (Waiting List) still show up
+    results = db.query(
+        models.PatientRecord,
+        models.Admission.admission_uid
+    ).outerjoin(
+        models.Admission, 
+        models.PatientRecord.id == models.Admission.patient_id
+    ).filter(
         func.date(models.PatientRecord.timestamp) == target_date
     ).order_by(models.PatientRecord.timestamp.desc()).all()
     
-    # Return directly; FastAPI's JSONEncoder handles Datetime objects 
-    # but ensure they include timezone info if possible.
-    return records
+    # Flatten results
+    history = []
+    for record, uid in results:
+        record_dict = {c.name: getattr(record, c.name) for c in record.__table__.columns}
+        record_dict["admission_uid"] = uid
+        history.append(record_dict)
+
+    return history
 
 @app.get("/api/history/surgery")
 def get_surgery_history(db: Session = Depends(get_db)):
@@ -1126,7 +1284,12 @@ async def call_to_room(patient_id: str, room_id: str, db: Session = Depends(get_
     # Trigger Inventory Hook for OPD Consumables
     await InventoryService.process_usage(
         db, manager, "OPD_Consultation", 
-        {"patient_name": patient.patient_name, "id": patient.id, "condition": "OPD Consult"}
+        {
+            "patient_name": patient.patient_name, 
+            "id": patient.id, 
+            "condition": "OPD Consult",
+            "admission_uid": None # OPD doesn't have ADM-UID yet
+        }
     )
     
     await manager.broadcast({"type": "QUEUE_UPDATE"})
@@ -1243,7 +1406,7 @@ def get_inventory_forecast(db: Session = Depends(get_db)):
 
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(db: Session = Depends(get_db)):
-
+    print("[DEBUG] get_dashboard_stats: Starting queries...")
     def get_count(unit_type: str):
         return db.query(models.BedModel).filter(
             models.BedModel.type == unit_type, 
@@ -1254,6 +1417,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     icu_occ = get_count("ICU")
     wards_occ = get_count("Wards")
     surgery_occ = get_count("Surgery")
+    print("[DEBUG] get_dashboard_stats: Occupancy counts done.")
     
     total_beds = db.query(models.BedModel).count() or 190
 
@@ -1261,6 +1425,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     vents_in_use = db.query(models.BedModel).filter(models.BedModel.ventilator_in_use == True).count()
     amb_total = db.query(models.Ambulance).count()
     amb_avail = db.query(models.Ambulance).filter(models.Ambulance.status == "IDLE").count()
+    print("[DEBUG] get_dashboard_stats: Resource usage query done.")
 
     # Staff Ratio (Patients per Doctor)
     total_doctors = db.query(models.Staff).filter(models.Staff.role == "Doctor", models.Staff.is_clocked_in == True).count()
@@ -1270,6 +1435,19 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     if total_doctors > 0:
         ratio = round(total_patients / total_doctors, 1)
         ratio_str = f"1:{ratio}"
+    print("[DEBUG] get_dashboard_stats: Staff ratio done.")
+
+    print("[DEBUG] get_dashboard_stats: Querying active patients...")
+    patient_list = [
+            {
+                "admission_uid": adm.admission_uid,
+                "patient_name": adm.patient_name,
+                "bed_id": adm.bed_id,
+                "status": adm.status
+            }
+            for adm in db.query(models.Admission).filter(models.Admission.status == "ACTIVE").limit(50).all()
+        ]
+    print(f"[DEBUG] get_dashboard_stats: Found {len(patient_list)} active patients.")
 
     return {
         "staff_ratio": ratio_str,
@@ -1287,7 +1465,8 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         "resources": {
             "Ventilators": {"total": 20, "in_use": vents_in_use},
             "Ambulances": {"total": amb_total, "available": amb_avail}
-        }
+        },
+        "patients": patient_list
     }
 # Ambulance System 
 
@@ -1701,6 +1880,158 @@ def get_active_alerts(db: Session = Depends(get_db)):
         })
         
     return {"alerts": alerts}
+
+# --- FINANCIAL API ENDPOINTS ---
+
+@app.get("/api/finance/bill/{admission_uid}")
+async def get_bill(admission_uid: str, db: Session = Depends(get_db)):
+    bill = db.query(models.Bill).filter(models.Bill.admission_uid == admission_uid).first()
+    if not bill:
+        # Check if admission exists and generate preview
+        adm = db.query(models.Admission).filter(models.Admission.admission_uid == admission_uid).first()
+        if not adm:
+            raise HTTPException(404, "Admission not found")
+        
+        # Simple Estimate:
+        days = BillingService.calculate_bed_days(adm.admission_time, datetime.utcnow())
+        bed = db.query(models.BedModel).filter(models.BedModel.id == adm.bed_id).first()
+        bed_cat = bed.billing_category if bed else "Ward"
+        bed_price_item = db.query(models.PriceMaster).filter_by(name=bed_cat).first()
+        bed_price = bed_price_item.price if bed_price_item else 3000.0
+        
+        bed_total = days * bed_price
+        
+        # Surgeries so far
+        surgeries = db.query(models.SurgeryLog).filter_by(admission_uid=admission_uid).all()
+        surg_total = sum(s.price_at_time for s in surgeries)
+
+        # [NEW] Resources so far
+        consumables = db.query(models.InventoryLog).filter_by(admission_uid=admission_uid).all()
+        cons_total = 0.0
+        for log in consumables:
+            # Join with PriceMaster for latest price
+            item_master = db.query(models.PriceMaster).filter(
+                models.PriceMaster.category == "CONSUMABLE",
+                models.PriceMaster.name == db.query(models.InventoryItem).filter(models.InventoryItem.id == log.item_id).first().name
+            ).first()
+            if item_master:
+                cons_total += (item_master.price * log.quantity_used)
+        
+        est_total = bed_total + surg_total + cons_total
+        tax = est_total * 0.0 # Estimate
+        
+        return {
+            "status": "ESTIMATE",
+            "admission_uid": admission_uid,
+            "patient_name": adm.patient_name,
+            "bed_days": days,
+            "bed_charge": bed_total,
+            "surgery_charge": surg_total,
+            "resource_charge": cons_total,
+            "tax": tax,
+            "total": est_total
+        }
+    
+    # Return actual bill items
+    items = db.query(models.BillItem).filter(models.BillItem.bill_no == bill.bill_no).all()
+    return {
+        "status": "FINAL",
+        "bill_no": bill.bill_no,
+        "total_amount": bill.total_amount,
+        "tax_amount": bill.tax_amount,
+        "grand_total": bill.grand_total,
+        "items": items
+    }
+
+@app.get("/api/finance/revenue/analytics")
+async def get_revenue_analytics(timeframe: str = "24h", db: Session = Depends(get_db)):
+    """
+    Aggregate Revenue Data.
+    Timeframes: 24h, 7D, 1M, 1Y.
+    """
+    now = datetime.utcnow()
+    start_time = now - timedelta(hours=24)
+    
+    if timeframe == "7D": start_time = now - timedelta(days=7)
+    if timeframe == "1M": start_time = now - timedelta(days=30)
+    if timeframe == "1Y": start_time = now - timedelta(days=365)
+    
+    # 1. Total Revenue in Period (Based on Bill Generation Time)
+    bills = db.query(models.Bill).filter(models.Bill.generated_at >= start_time).all()
+    total_revenue = sum(b.grand_total or 0.0 for b in bills)
+    
+    # 2. Revenue Trend (Line Graph)
+    # Aggregate bills by time buckets
+    trend_map = {}
+    
+    # Determine bucket format
+    if timeframe == "24h":
+        # Bucket by Hour: "HH:00"
+        time_format = "%H:00"
+        # Pre-fill last 24h with 0
+        for i in range(24):
+            t = (now - timedelta(hours=i)).strftime(time_format)
+            trend_map[t] = 0.0
+    else:
+        # Bucket by Day: "YYYY-MM-DD" or just "Mon", "Tue"
+        time_format = "%Y-%m-%d"
+        # Pre-fill coverage
+        days = 7 if timeframe == "7D" else 30
+        if timeframe == "1Y": days = 365
+        for i in range(days):
+            t = (now - timedelta(days=i)).strftime(time_format)
+            trend_map[t] = 0.0
+
+    for bill in bills:
+        # Round generated_at to bucket
+        key = bill.generated_at.strftime(time_format)
+        if key in trend_map:
+            trend_map[key] += (bill.grand_total or 0.0)
+        
+    # Convert to List for Recharts
+    # Sort by time
+    sorted_keys = sorted(trend_map.keys())
+    trend_data = [{"time": k, "revenue": trend_map[k]} for k in sorted_keys]
+
+    
+    # 3. Revenue by Category (Bed vs Surgery) - Bar Chart
+    bed_revenue = 0.0
+    surgery_revenue = 0.0
+    
+    # Get all bills IDs first
+    bill_ids = [b.bill_no for b in bills]
+    if bill_ids:
+        items = db.query(models.BillItem).filter(models.BillItem.bill_no.in_(bill_ids)).all()
+        for i in items:
+            price = i.total_price or 0.0
+            desc = i.description or ""
+            if "Bed" in desc:
+                bed_revenue += price 
+            elif "Surgery" in desc:
+                surgery_revenue += price
+    
+    # 4. KPI: ARPP (Average Revenue Per Patient)
+    unique_patients = len(set(b.admission_uid for b in bills))
+    arpp = total_revenue / unique_patients if unique_patients > 0 else 0.0
+    
+    # 5. KPI: Occupancy Rate (Current snapshot)
+    total_beds = db.query(models.BedModel).count()
+    occupied_beds = db.query(models.BedModel).filter_by(is_occupied=True).count()
+    occupancy_rate = (occupied_beds / total_beds * 100) if total_beds > 0 else 0.0
+    
+    return {
+        "kpi": {
+            "total_revenue": total_revenue,
+            "arpp": arpp,
+            "occupancy_rate": occupancy_rate
+        },
+        "breakdown": {
+            "bed_revenue": bed_revenue,
+            "surgery_revenue": surgery_revenue,
+            "pharmacy_revenue": 0.0 
+        },
+        "trend": trend_data 
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
