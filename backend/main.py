@@ -28,7 +28,8 @@ import models
 from inventory_service import InventoryService 
 from billing_service import BillingService # [NEW]
 from sqlalchemy import desc 
-from auth_middleware import get_current_user, require_role, require_admin, require_admin_or_doctor, require_any_staff, CurrentUser # [RBAC] 
+from auth_middleware import get_current_user, require_role, require_admin, require_admin_or_doctor, require_any_staff, CurrentUser, log_audit_event # [RBAC] 
+from fastapi import Request
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -420,18 +421,71 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not staff:
         raise HTTPException(status_code=404, detail="Staff ID not found in database")
     
-    # Generate token (ignoring password for now to get you inside)
+    # HIPAA: Log Successful Login
+    log_audit_event(
+        db=db,
+        staff_id=staff.id,
+        role=staff.role,
+        action="SUCCESSFUL_LOGIN",
+        resource_path="/api/login",
+        ip_address="unknown", 
+        details=f"Staff {staff.name} logged in successfully."
+    )
+
+    # Generate token 
     access_token = jwt.encode({
         "sub": staff.id, 
         "role": staff.role,
         "exp": datetime.utcnow() + timedelta(hours=8)
     }, SECRET_KEY, algorithm=ALGORITHM)
-    
+
     return {
         "access_token": access_token, 
         "role": staff.role, 
         "staff_id": staff.id
     }
+
+@app.post("/api/logout")
+async def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    # HIPAA: Log Manual Logout
+    log_audit_event(
+        db=db,
+        staff_id=current_user.staff_id,
+        role=current_user.role,
+        action="MANUAL_LOGOUT",
+        resource_path="/api/logout",
+        ip_address=request.client.host if request.client else "unknown",
+        details=f"Staff {current_user.name} logged out manually."
+    )
+    return {"message": "Logged out successfully"}
+
+@app.get("/api/admin/audit-logs")
+async def get_audit_logs(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    # Guard: Only Admin role
+    if current_user.role != "Admin":
+        # HIPAA: Log Security Breach Attempt
+        log_audit_event(
+            db=db,
+            staff_id=current_user.staff_id,
+            role=current_user.role,
+            action="CRITICAL_SECURITY_BREACH",
+            resource_path="/api/admin/audit-logs",
+            ip_address=request.client.host if request.client else "unknown",
+            details=f"UNAUTHORIZED ACCESS ATTEMPT by {current_user.name} ({current_user.role})"
+        )
+        raise HTTPException(status_code=403, detail="CRITICAL_SECURITY_BREACH: Access Denied.")
+
+    # If Admin, return logs
+    logs = db.query(models.AuditLog).order_by(models.AuditLog.timestamp.desc()).limit(100).all()
+    return logs
 
 
 @app.post("/api/erp/admit")

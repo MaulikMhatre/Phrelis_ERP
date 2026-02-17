@@ -419,9 +419,15 @@ const AdminPanel = () => {
                 IST: {formatIST()} • SYSTEM ONLINE
               </p>
             </div>
-            <Link href="/" className="px-8 py-4 bg-[#0f172a] border border-slate-800 rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:bg-slate-800 hover:border-indigo-500/50 hover:text-white transition-all shadow-lg hover:shadow-indigo-500/10">
-              Dashboard Return
-            </Link>
+            <div className="flex gap-4">
+              <Link href="/admin/audit-logs" className="px-8 py-4 bg-[#0f172a] border border-slate-800 rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:bg-slate-800 hover:border-blue-500/50 hover:text-white transition-all shadow-lg hover:shadow-blue-500/10 flex items-center gap-2">
+                <ShieldAlert size={16} className="text-blue-500" />
+                System Sentinel
+              </Link>
+              <Link href="/" className="px-8 py-4 bg-[#0f172a] border border-slate-800 rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:bg-slate-800 hover:border-indigo-500/50 hover:text-white transition-all shadow-lg hover:shadow-indigo-500/10">
+                Dashboard Return
+              </Link>
+            </div>
           </div>
 
           {/* LAYER 1: LOGISTICS */}

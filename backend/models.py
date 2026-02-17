@@ -297,3 +297,15 @@ class ConsultationLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     price_at_time = Column(Float)
     bill_no = Column(String, nullable=True) # Linked once billed
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    staff_id = Column(String, index=True)
+    staff_role = Column(String)
+    action = Column(String, index=True) # e.g., 'LOGIN', 'LOGOUT', 'DATA_VIEW'
+    resource_path = Column(String)
+    details = Column(String, nullable=True) # clinical context or other info
+    ip_address = Column(String)

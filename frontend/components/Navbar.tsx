@@ -32,7 +32,8 @@ const Navbar = () => {
   const allNavItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Admin'] },
     { name: 'Analytics', href: '/predictions', icon: LineChart, roles: ['Admin'] },
-    { name: 'Revenue', href: '/admin/revenue', icon: DollarSign, roles: ['Admin'] },  // Admin only
+    { name: 'Revenue', href: '/admin/revenue', icon: DollarSign, roles: ['Admin'] },
+    { name: 'Audit-Log', href: '/admin/audit-logs', icon: DollarSign, roles: ['Admin'] },  // Admin only
     { name: 'OPD', href: '/queue', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Triage', href: '/triage', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Admin', href: '/admin', icon: Settings, roles: ['Admin', 'Doctor'] },  // Doctor can view

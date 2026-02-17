@@ -3,13 +3,14 @@ Authentication Middleware for RBAC System
 Provides JWT token validation and role-based access control
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from database import get_db
 import models
+from datetime import datetime
 
 # Security Configuration
 SECRET_KEY = "your_super_secret_hospital_key"  # Should match main.py
@@ -17,6 +18,26 @@ ALGORITHM = "HS256"
 
 security = HTTPBearer()
 
+def log_audit_event(
+    db: Session,
+    staff_id: str,
+    role: str,
+    action: str,
+    resource_path: str,
+    ip_address: str,
+    details: Optional[str] = None
+):
+    """Utility to create an audit log entry"""
+    audit_entry = models.AuditLog(
+        staff_id=staff_id,
+        staff_role=role,
+        action=action,
+        resource_path=resource_path,
+        ip_address=ip_address,
+        details=details
+    )
+    db.add(audit_entry)
+    db.commit()
 
 class CurrentUser:
     """Data class to hold current authenticated user information"""
@@ -31,6 +52,7 @@ class CurrentUser:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> CurrentUser:
@@ -38,9 +60,7 @@ async def get_current_user(
     Dependency to extract and validate JWT token from request headers.
     Returns CurrentUser object with staff_id and role.
     
-    Raises:
-        HTTPException 401: If token is invalid or expired
-        HTTPException 404: If user not found in database
+    Also automatically logs requests to /api/erp/ and /api/finance/ endpoints.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,7 +89,22 @@ async def get_current_user(
             detail="User not found"
         )
     
-    return CurrentUser(staff_id=staff.id, role=staff.role, name=staff.name)
+    current_user = CurrentUser(staff_id=staff.id, role=staff.role, name=staff.name)
+
+    # HIPAA: Automatically log access to sensitive ERP/Finance paths
+    path = request.url.path
+    if path.startswith("/api/erp/") or path.startswith("/api/finance/"):
+        log_audit_event(
+            db=db,
+            staff_id=current_user.staff_id,
+            role=current_user.role,
+            action="DATA_VIEW",
+            resource_path=path,
+            ip_address=request.client.host if request.client else "unknown",
+            details=f"Access to {path}"
+        )
+    
+    return current_user
 
 
 def require_role(allowed_roles: List[str]):
