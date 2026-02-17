@@ -176,16 +176,21 @@ class BillingService:
         consumable_tax = 0.0
         
         for log in consumable_logs:
+            # Defensive check for item existence
+            inv_item = db.query(models.InventoryItem).filter(models.InventoryItem.id == log.item_id).first()
+            if not inv_item:
+                continue
+                
             # Join with PriceMaster to get price by item name
             item_master = db.query(models.PriceMaster).filter(
                 models.PriceMaster.category == "CONSUMABLE",
-                models.PriceMaster.name == db.query(models.InventoryItem).filter(models.InventoryItem.id == log.item_id).first().name
+                models.PriceMaster.name == inv_item.name
             ).first()
             
             if item_master:
-                c_price = item_master.price
-                c_gst = item_master.gst_percent
-                c_qty = log.quantity_used
+                c_price = item_master.price or 0.0
+                c_gst = item_master.gst_percent or 0.0
+                c_qty = log.quantity_used or 0
                 c_line_total = c_price * c_qty
                 c_line_tax = c_line_total * (c_gst / 100)
                 

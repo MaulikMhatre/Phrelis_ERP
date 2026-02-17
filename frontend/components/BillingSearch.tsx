@@ -35,13 +35,14 @@ export default function BillingSearch() {
     const [error, setError] = useState('');
 
     const handleSearch = async () => {
-        if (!uid) return;
+        const trimmedUid = uid.trim();
+        if (!trimmedUid) return;
         setLoading(true);
         setError('');
         setBill(null);
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/finance/bill/${uid}`);
+            const res = await fetch(`${API_BASE_URL}/api/finance/bill/${trimmedUid}`);
             if (!res.ok) {
                 if (res.status === 404) throw new Error("Admission UID not found");
                 throw new Error("Error fetching bill");
@@ -146,11 +147,11 @@ export default function BillingSearch() {
                                         <tr key={i}>
                                             <td className="p-3 font-medium text-gray-800">{item.description}</td>
                                             <td className="p-3 text-center text-gray-600">{item.quantity}</td>
-                                            <td className="p-3 text-right text-gray-600">₹{item.unit_price.toLocaleString()}</td>
+                                            <td className="p-3 text-right text-gray-600">₹{(item.unit_price || 0).toLocaleString()}</td>
                                             <td className="p-3 text-right text-gray-600">
-                                                {item.tax_percent}% (₹{item.tax_amount.toLocaleString()})
+                                                {item.tax_percent || 0}% (₹{(item.tax_amount || 0).toLocaleString()})
                                             </td>
-                                            <td className="p-3 text-right font-bold text-gray-900">₹{item.total_price.toLocaleString()}</td>
+                                            <td className="p-3 text-right font-bold text-gray-900">₹{(item.total_price || 0).toLocaleString()}</td>
                                         </tr>
                                     ))}
 
@@ -182,15 +183,15 @@ export default function BillingSearch() {
                             <div className="w-64 bg-gray-50 p-6 rounded-xl border border-gray-100">
                                 <div className="flex justify-between mb-2 text-gray-600">
                                     <span>Subtotal</span>
-                                    <span>₹{((bill.total || bill.grand_total) - (bill.tax || bill.tax_amount)).toLocaleString()}</span>
+                                    <span>₹{((bill.total || bill.grand_total || 0) - (bill.tax || bill.tax_amount || 0)).toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between mb-2 text-gray-600">
                                     <span>GST (Goods)</span>
-                                    <span>₹{(bill.tax || bill.tax_amount).toLocaleString()}</span>
+                                    <span>₹{(bill.tax || bill.tax_amount || 0).toLocaleString()}</span>
                                 </div>
                                 <div className="border-t border-gray-200 my-2 pt-2 flex justify-between font-bold text-xl text-blue-900">
                                     <span>Total</span>
-                                    <span>₹{(bill.total || bill.grand_total).toLocaleString()}</span>
+                                    <span>₹{(bill.total || bill.grand_total || 0).toLocaleString()}</span>
                                 </div>
                             </div>
                         </div>

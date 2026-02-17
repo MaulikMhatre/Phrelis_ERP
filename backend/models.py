@@ -1,6 +1,13 @@
-from sqlalchemy import Column, Integer, String, Boolean, JSON, DateTime, Float ,ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, JSON, DateTime, Float, ForeignKey, Enum
 from datetime import datetime
 from database import Base
+import enum
+
+# Role-Based Access Control Enum
+class UserRole(str, enum.Enum):
+    ADMIN = "Admin"
+    DOCTOR = "Doctor"
+    NURSE = "Nurse"
 
 
 class BedModel(Base):
@@ -29,6 +36,9 @@ class BedModel(Base):
     expected_end_time = Column(DateTime, nullable=True)
     cleanup_start_time = Column(DateTime, nullable=True)
     next_surgery_start_time = Column(DateTime, nullable=True)
+    admission_uid = Column(String, nullable=True) # [NEW] Track active admission 
+    surgery_type = Column(String, nullable=True) # [NEW] Track active surgery type
+    created_by_uid = Column(String, nullable=True) # [RBAC] Track staff who admitted patient
 
     def get_color_code(self):
         if self.status == "AVAILABLE": return "#32CD32" # Green
@@ -75,6 +85,7 @@ class PatientRecord(Base):
     condition = Column(String, nullable=True)
     discharge_time = Column(DateTime, nullable=True)
     assigned_staff = Column(String, ForeignKey("staff.id"), nullable=True) # Added for Smart Nursing
+    admission_uid = Column(String, nullable=True) # [NEW] Link to billing admission
 
 class Department(Base):
     __tablename__ = "departments"
@@ -88,10 +99,11 @@ class Staff(Base):
     
     id = Column(String, primary_key=True) # S-101
     name = Column(String)
-    role = Column(String) # "Nurse", "Doctor"
+    role = Column(String) # Will store "Admin", "Doctor", "Nurse" - matches UserRole enum values
     hashed_password = Column(String)
     is_clocked_in = Column(Boolean, default=False)
-    department_id = Column(String, nullable=True) 
+    department_id = Column(String, nullable=True)
+    email = Column(String, nullable=True) # For future notifications/password reset 
 
 class BedAssignment(Base):
     __tablename__ = "bed_assignments"
@@ -159,6 +171,8 @@ class SurgeryHistory(Base):
     
     total_duration_minutes = Column(Integer)
     overtime_minutes = Column(Integer, default=0)
+    surgery_type = Column(String, nullable=True) # [NEW]
+    admission_uid = Column(String, nullable=True) # [NEW]
 
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
@@ -233,6 +247,7 @@ class Admission(Base):
     # Snapshot of patient details at admission for immutable record
     patient_name = Column(String)
     patient_age = Column(Integer)
+    created_by_uid = Column(String, nullable=True) # [RBAC] Track staff who created admission
     
 class SurgeryLog(Base):
     __tablename__ = "surgery_logs"
@@ -243,6 +258,7 @@ class SurgeryLog(Base):
     price_at_time = Column(Float)
     timestamp = Column(DateTime, default=datetime.utcnow)
     notes = Column(String, nullable=True)
+    created_by_uid = Column(String, nullable=True) # [RBAC] Track staff who logged surgery
 
 class Bill(Base):
     __tablename__ = "bills"

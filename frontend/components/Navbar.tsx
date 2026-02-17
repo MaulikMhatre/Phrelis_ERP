@@ -14,32 +14,37 @@ import {
   Users,
   ClipboardCheck,
   LogOut,
-  DollarSign // [NEW]
+  DollarSign,
+  Shield
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';  // [RBAC] Import useAuth
 
 const Navbar = () => {
   const pathname = usePathname();
   const router = useRouter();
+  const { role, logout } = useAuth();  // [RBAC] Get role and logout function
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("staff_id");
-    router.push("/");
+    logout();  // [RBAC] Use AuthContext logout
   };
 
-  const navItems = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Analytics', href: '/predictions', icon: LineChart },
-    { name: 'Revenue', href: '/admin/revenue', icon: DollarSign }, // [NEW]
-    { name: 'OPD', href: '/queue', icon: Stethoscope },
-    { name: 'Triage', href: '/triage', icon: Stethoscope },
-    { name: 'Admin', href: '/admin', icon: Settings },
-    { name: 'History', href: '/history', icon: Clock },
-    { name: 'Staff', href: '/staff', icon: Users },
-    // { name: 'Sentinel', href: '/sentinel', icon: Network },
-    { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck }
+  // [RBAC] Define all navigation items with role-based access control
+  const allNavItems = [
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Admin'] },
+    { name: 'Analytics', href: '/predictions', icon: LineChart, roles: ['Admin'] },
+    { name: 'Revenue', href: '/admin/revenue', icon: DollarSign, roles: ['Admin'] },  // Admin only
+    { name: 'OPD', href: '/queue', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
+    { name: 'Triage', href: '/triage', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
+    { name: 'Admin', href: '/admin', icon: Settings, roles: ['Admin', 'Doctor'] },  // Doctor can view
+    { name: 'History', href: '/history', icon: Clock, roles: ['Admin'] },
+    { name: 'Staff', href: '/staff', icon: Users, roles: ['Admin', 'Doctor', 'Nurse'] },
+    { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck, roles: ['Admin', 'Doctor', 'Nurse'] }
   ];
+
+  // [RBAC] Filter navigation items based on user role
+  const navItems = allNavItems.filter(item =>
+    role && item.roles.includes(role)
+  );
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-xl text-white border-b border-white/5">
@@ -74,8 +79,8 @@ const Navbar = () => {
                   key={item.name}
                   href={item.href}
                   className={`relative flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 group/link ${isActive
-                      ? 'text-white bg-white/5 border border-white/5'
-                      : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
+                    ? 'text-white bg-white/5 border border-white/5'
+                    : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
                     }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400' : 'text-slate-600 group-hover/link:text-indigo-400'}`} />
@@ -94,8 +99,16 @@ const Navbar = () => {
             })}
           </div>
 
-          {/* RIGHT: System Status & Logout */}
+          {/* RIGHT: Role Badge & Logout */}
           <div className="flex items-center gap-6 pl-8 border-l border-white/10">
+            {/* [RBAC] Role Badge */}
+            {role && (
+              <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{role}</span>
+              </div>
+            )}
+
             <div className="hidden lg:flex flex-col items-end">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Cloud Sync Active</span>

@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import GlobalAlertBanner from "@/components/GlobalAlertBanner";
 import { ToastProvider } from "@/context/ToastContext";
+import { AuthProvider } from "@/context/AuthContext";  // [RBAC] Import AuthProvider
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -33,22 +34,24 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body 
+      <body
         className={`${inter.className} bg-[#020617] min-h-screen flex flex-col transition-colors duration-500`}
         suppressHydrationWarning
       >
-        <ToastProvider>
-          {!isLoginPage && isAuthenticated && (
-            <>
-              <GlobalAlertBanner />
-              <Navbar />
-            </>
-          )}
+        <AuthProvider>  {/* [RBAC] Wrap with AuthProvider */}
+          <ToastProvider>
+            {!isLoginPage && isAuthenticated && (
+              <>
+                <GlobalAlertBanner />
+                <Navbar />
+              </>
+            )}
 
-          <main className="flex-grow w-full">
-            {children}
-          </main>
-        </ToastProvider>
+            <main className="flex-grow w-full">
+              {children}
+            </main>
+          </ToastProvider>
+        </AuthProvider>
       </body>
     </html>
   );

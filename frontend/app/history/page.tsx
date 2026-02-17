@@ -30,6 +30,8 @@ export interface SurgeryRecord {
   total_duration_minutes: number;
   overtime_minutes: number;
   end_time: string;
+  surgery_type?: string; // [NEW]
+  admission_uid?: string; // [NEW]
 }
 
 // Interface for OPD Data
@@ -252,7 +254,14 @@ export default function HistoryPage() {
                             </div>
                           )}
                           {activeTab === "SURGERY" && (
-                            <span className="text-sm font-bold text-purple-400">{row.surgeon_name}</span>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-sm font-bold text-purple-400">{row.surgeon_name}</span>
+                              {row.surgery_type && (
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-white/5 px-2 py-0.5 rounded border border-white/5 w-fit">
+                                  Type: {row.surgery_type}
+                                </span>
+                              )}
+                            </div>
                           )}
                           {activeTab === "OPD" && (
                             <div className="flex flex-col gap-1.5">

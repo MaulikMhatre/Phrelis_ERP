@@ -222,7 +222,11 @@ const AdminPanel = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedBed, setSelectedBed] = useState<any | null>(null);
-  const [patientData, setPatientData] = useState({ name: '', age: '', gender: 'Male', condition: 'Stable', surgeonName: '', duration: 60 });
+  const [patientData, setPatientData] = useState({
+    name: '', age: '', gender: 'Male', condition: 'Stable',
+    surgeonName: '', duration: 60,
+    surgeryType: 'Minor', admissionUid: ''
+  });
 
   const [dispatchForm, setDispatchForm] = useState({ severity: 'HIGH', location: '', eta: 10 });
   const [dischargeBedId, setDischargeBedId] = useState<string | null>(null);
@@ -277,7 +281,11 @@ const AdminPanel = () => {
   const openAdmitModal = (bed: any) => {
     setSelectedBed(bed);
     let defCond = activeUnit === 'ICU' ? 'Critical' : activeUnit === 'Surgery' ? 'Pre-Surgery' : 'Stable';
-    setPatientData({ name: '', age: '', gender: 'Male', condition: defCond, surgeonName: '', duration: 60 });
+    setPatientData({
+      name: '', age: '', gender: 'Male', condition: defCond,
+      surgeonName: '', duration: 60,
+      surgeryType: 'Minor', admissionUid: ''
+    });
     setIsModalOpen(true);
   };
 
@@ -299,7 +307,13 @@ const AdminPanel = () => {
         res = await fetch(endpoints.startSurgery, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...payload, surgeon_name: patientData.surgeonName, duration_minutes: Number(patientData.duration) })
+          body: JSON.stringify({
+            ...payload,
+            surgeon_name: patientData.surgeonName,
+            duration_minutes: Number(patientData.duration),
+            surgery_type: patientData.surgeryType,
+            admission_uid: patientData.admissionUid || null
+          })
         });
       } else {
         res = await fetch(endpoints.admit, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -496,7 +510,7 @@ const AdminPanel = () => {
         {isModalOpen && selectedBed && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsModalOpen(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-[#0b0b0b] rounded-[2.5rem] p-10 max-w-xl w-full border border-slate-800 relative z-10 shadow-2xl overflow-hidden">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-[#0b0b0b] rounded-[2.5rem] p-10 max-w-xl w-full max-h-[90vh] overflow-y-auto border border-slate-800 relative z-10 shadow-2xl custom-scrollbar">
               <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-6">
                 <div>
                   <h2 className="text-3xl font-black text-white tracking-tighter">Admit Patient</h2>
@@ -517,6 +531,10 @@ const AdminPanel = () => {
               </div>
               <form onSubmit={submitAdmission} className="space-y-6">
                 <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Admission ID (Optional)</label>
+                  <input className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-mono text-xs transition-all" placeholder="ADM-XXXXXX (Leave blank for new)" value={patientData.admissionUid} onChange={e => setPatientData({ ...patientData, admissionUid: e.target.value })} />
+                </div>
+                <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Patient Full Name</label>
                   <input required className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-medium transition-all" placeholder="Enter name..." value={patientData.name} onChange={e => setPatientData({ ...patientData, name: e.target.value })} />
                 </div>
@@ -531,13 +549,24 @@ const AdminPanel = () => {
                   </div>
                 </div>
                 {activeUnit === 'Surgery' && (
-                  <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest ml-1 flex items-center gap-2">Attending Surgeon</label>
-                    <div className="relative">
-                      <Stethoscope className="absolute left-5 top-1/2 -translate-y-1/2 text-purple-500" size={18} />
-                      <input required className="w-full p-5 pl-14 bg-[#0f172a] border border-purple-500/30 focus:border-purple-500 rounded-2xl text-white outline-none font-medium" placeholder="Dr. Name..." value={patientData.surgeonName} onChange={e => setPatientData({ ...patientData, surgeonName: e.target.value })} />
+                  <>
+                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest ml-1 flex items-center gap-2">Surgery Category</label>
+                      <select className="w-full p-5 bg-[#0f172a] border border-purple-500/30 focus:border-purple-500 rounded-2xl text-white outline-none font-medium appearance-none" value={patientData.surgeryType} onChange={e => setPatientData({ ...patientData, surgeryType: e.target.value })}>
+                        <option value="Minor">Minor (12.5k)</option>
+                        <option value="Intermediate">Intermediate (52.5k)</option>
+                        <option value="Major">Major (150k)</option>
+                        <option value="Specialized">Specialized (425k+)</option>
+                      </select>
                     </div>
-                  </div>
+                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest ml-1 flex items-center gap-2">Attending Surgeon</label>
+                      <div className="relative">
+                        <Stethoscope className="absolute left-5 top-1/2 -translate-y-1/2 text-purple-500" size={18} />
+                        <input required className="w-full p-5 pl-14 bg-[#0f172a] border border-purple-500/30 focus:border-purple-500 rounded-2xl text-white outline-none font-medium" placeholder="Dr. Name..." value={patientData.surgeonName} onChange={e => setPatientData({ ...patientData, surgeonName: e.target.value })} />
+                      </div>
+                    </div>
+                  </>
                 )}
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Condition</label>

@@ -28,6 +28,7 @@ import models
 from inventory_service import InventoryService 
 from billing_service import BillingService # [NEW]
 from sqlalchemy import desc 
+from auth_middleware import get_current_user, require_role, require_admin, require_admin_or_doctor, require_any_staff, CurrentUser # [RBAC] 
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -47,11 +48,11 @@ def seed_price_master():
         ("BED", "ICU", 20000.0, 0.0, "ICU Bed"),
         ("BED", "ICU_Ventilator", 35000.0, 0.0, "ICU Bed with Ventilator"),
         
-        # SURGERY RATES (Services = 0% GST usually, but check prompt. Prompt says "Legal Tax Engine... 0% on Doctor/Bed fees (Healthcare Services)". So 0%.)
-        ("SURGERY", "Minor", 10000.0, 0.0, "Abscess drainage, Stitches"),
-        ("SURGERY", "Intermediate", 45000.0, 0.0, "Appendix, Hernia"),
-        ("SURGERY", "Major", 120000.0, 0.0, "Gallbladder, Joint Replacement"),
-        ("SURGERY", "Complex", 350000.0, 0.0, "Cardiac Bypass, Neuro"),
+        # SURGERY RATES (Based on User Ranges)
+        ("SURGERY", "Minor", 12500.0, 0.0, "Abscess drainage, Stitches, Biopsy, Circumcision"),
+        ("SURGERY", "Intermediate", 52500.0, 0.0, "Appendectomy, Hernia repair, Tonsillectomy"),
+        ("SURGERY", "Major", 150000.0, 0.0, "Gallbladder (Laparoscopic), Hysterectomy, Knee Replacement"),
+        ("SURGERY", "Specialized", 425000.0, 0.0, "CABG (Cardiac Bypass), Neuro-surgery, Kidney Transplant"),
         
         # CONSULTATION (Just in case)
         ("CONSULTATION", "Specialist", 1500.0, 0.0, "Standard Consultation"),
@@ -340,7 +341,9 @@ class SurgeryStartRequest(BaseModel):
     patient_name: str
     patient_age: int
     surgeon_name: str
+    surgery_type: str # [NEW] e.g., "Minor", "Intermediate", "Major", "Complex"
     duration_minutes: int
+    admission_uid: Optional[str] = None # [NEW] Link to existing stay if any
 
 class SurgeryExtendRequest(BaseModel):
     additional_minutes: int
@@ -433,7 +436,11 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/erp/admit")
-async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)):
+async def admit_patient(
+    request: AdmissionRequest, 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin_or_doctor)  # [RBAC] Only Admin or Doctor can admit
+):
     # 1. Find the bed with a lock to prevent double-booking
     bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).with_for_update().first()
     
@@ -471,7 +478,8 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
     bed.condition = request.condition
     bed.status = "OCCUPIED" 
     bed.admission_time = datetime.utcnow() # Track for IST normalization
-
+    bed.admission_uid = None # Will be set below
+    
     if hasattr(bed, 'patient_age'): 
         bed.patient_age = request.patient_age
 
@@ -485,6 +493,13 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
     else:
         bed.billing_category = bed.billing_category or "Ward"
 
+    # [NEW] Create Financial Admission Record
+    new_admission_uid = f"ADM-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+    
+    # Save UID to bed and record for history tracking
+    bed.admission_uid = new_admission_uid
+    bed.created_by_uid = current_user.staff_id  # [RBAC] Track who admitted the patient
+    
     # 4. Create Persistent Patient Record
     new_patient_id = str(uuid.uuid4())
     new_record = models.PatientRecord(
@@ -498,18 +513,17 @@ async def admit_patient(request: AdmissionRequest, db: Session = Depends(get_db)
         patient_name=request.patient_name,
         patient_age=request.patient_age,
         condition=request.condition,
-        assigned_staff=request.staff_id
+        assigned_staff=request.staff_id,
+        admission_uid=new_admission_uid # [NEW]
     )
-    
-    # [NEW] Create Financial Admission Record
-    new_admission_uid = f"ADM-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
     new_admission = models.Admission(
         admission_uid=new_admission_uid,
         patient_id=new_patient_id,
         bed_id=request.bed_id,
         patient_name=request.patient_name,
         patient_age=request.patient_age,
-        status="ACTIVE"
+        status="ACTIVE",
+        created_by_uid=current_user.staff_id  # [RBAC] Track who created the admission
     )
     
     try:
@@ -575,7 +589,11 @@ def list_beds(db: Session = Depends(get_db)):
     return db.query(models.BedModel).all()
 
 @app.post("/api/erp/discharge/{bed_id}")
-async def discharge(bed_id: str, db: Session = Depends(get_db)):
+async def discharge(
+    bed_id: str, 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin_or_doctor)  # [RBAC] Only Admin or Doctor can discharge
+):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
     if bed:
         # Update History Record (Find latest record for this patient)
@@ -676,7 +694,11 @@ async def cleaning_complete(bed_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/surgery/start")
-async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_db)):
+async def start_surgery(
+    request: SurgeryStartRequest, 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin_or_doctor)  # [RBAC] Only Admin or Doctor can start surgery
+):
     bed = db.query(models.BedModel).filter(models.BedModel.id == request.bed_id).first()
     if not bed:
         raise HTTPException(status_code=404, detail="Bed not found")
@@ -687,6 +709,27 @@ async def start_surgery(request: SurgeryStartRequest, db: Session = Depends(get_
     bed.surgeon_name = request.surgeon_name
     bed.patient_age = request.patient_age
     bed.admission_time = now
+    bed.surgery_type = request.surgery_type # [NEW]
+    
+    # [NEW] Handle Admission UID - either provided from existing stay or generated fresh
+    target_uid = request.admission_uid
+    if not target_uid:
+        # If it's a direct surgery without prior admission, generate a UID
+        target_uid = f"ADM-SRG-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+        # Create a matching Admission record so billing works
+        new_admission = models.Admission(
+            admission_uid=target_uid,
+            patient_id=str(uuid.uuid4()), # Placeholder or link to existing if you had a global patient table
+            bed_id=request.bed_id,
+            patient_name=request.patient_name,
+            patient_age=request.patient_age,
+            status="ACTIVE",
+            created_by_uid=current_user.staff_id  # [RBAC] Track who initiated surgery
+        )
+        db.add(new_admission)
+    
+    bed.admission_uid = target_uid # [NEW]
+    bed.created_by_uid = current_user.staff_id  # [RBAC] Track who started surgery
     
     # Logic Fix: Handle the 0 duration case cleanly
     iso_time = None
@@ -757,7 +800,11 @@ async def extend_surgery(bed_id: str, request: SurgeryExtendRequest, db: Session
 
 
 @app.post("/api/surgery/complete/{bed_id}")
-async def complete_surgery(bed_id: str, db: Session = Depends(get_db)):
+async def complete_surgery(
+    bed_id: str, 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin_or_doctor)  # [RBAC] Only Admin or Doctor can complete surgery
+):
     bed = db.query(models.BedModel).filter(models.BedModel.id == bed_id).first()
     if not bed: raise HTTPException(404, "Bed not found")
     
@@ -786,53 +833,47 @@ async def complete_surgery(bed_id: str, db: Session = Depends(get_db)):
         start_time=start_time,
         end_time=actual_end_time,
         total_duration_minutes=int(total_duration),
-        overtime_minutes=int(overtime) if overtime > 0 else 0
+        overtime_minutes=int(overtime) if overtime > 0 else 0,
+        surgery_type=bed.surgery_type, # [NEW]
+        admission_uid=bed.admission_uid # [NEW]
     )
     
     db.add(history_entry)
     
     # [NEW] Financial Log for Surgery
-    # Find active admission for this patient/bed
-    active_admission = db.query(models.Admission).filter(
-        models.Admission.bed_id == bed_id,
-        models.Admission.status == "ACTIVE"
-    ).first()
+    # Use the admission_uid explicitly stored on bed or found in db
+    target_uid = bed.admission_uid
+    if not target_uid:
+        # Fallback to search if not explicitly passed at start
+        active_adm = db.query(models.Admission).filter(
+            models.Admission.bed_id == bed_id,
+            models.Admission.status == "ACTIVE"
+        ).first()
+        if active_adm: target_uid = active_adm.admission_uid
     
-    if active_admission:
-        # Determine Surgery Type/Price based on duration or metadata?
-        # Prompt says "Surgery Type Input". 
-        # Current SurgeryStartRequest only has 'surgeon_name', 'duration'.
-        # ideally we should have 'surgery_type' in the start request.
-        # For now, I'll infer from duration or just pick "Minor" as default if unknown, 
-        # BUT I should probably update SurgeryStartRequest to include type.
-        # Let's assume 'Minor' for safe fallback or check if I can modify the Start Request model too.
-        # I'll modify the Start Request model in next step or use a default here.
-        
-        # Let's try to find a matching price logic or just use "Major" for long surgeries?
-        # Simple logic for now:
-        surgery_type = "Minor"
-        if int(total_duration) > 60: surgery_type = "Intermediate"
-        if int(total_duration) > 180: surgery_type = "Major"
+    if target_uid:
+        # Use the surgery type selected at start
+        surgery_type = bed.surgery_type or "Minor"
         
         # Get Price
         price = BillingService.get_price(db, surgery_type)
         
         surgery_log = models.SurgeryLog(
-            admission_uid=active_admission.admission_uid,
+            admission_uid=target_uid,
             surgery_name=surgery_type,
             price_at_time=price,
             notes=f"Surgeon: {bed.surgeon_name}, Duration: {int(total_duration)}m"
         )
         db.add(surgery_log)
 
-        # [NEW] Item Deduction for Surgery
+        # [NEW] Item Deduction for Surgery - Deduct items for this surgery type
         await InventoryService.process_usage(
-            db, manager, "Surgery", 
+            db, manager, surgery_type, 
             {
                 "patient_name": bed.patient_name, 
                 "bed_id": bed.id, 
-                "condition": "Post-Op",
-                "admission_uid": active_admission.admission_uid
+                "condition": f"Surgery: {surgery_type}",
+                "admission_uid": target_uid
             }
         )
     
@@ -1011,9 +1052,10 @@ def get_history_by_day(target_date: date, db: Session = Depends(get_db)):
     
     # Flatten results
     history = []
-    for record, uid in results:
+    for record, joined_uid in results:
         record_dict = {c.name: getattr(record, c.name) for c in record.__table__.columns}
-        record_dict["admission_uid"] = uid
+        # Use direct field first, then fallback to joined for legacy data
+        record_dict["admission_uid"] = record.admission_uid or joined_uid
         history.append(record_dict)
 
     return history
@@ -1884,7 +1926,11 @@ def get_active_alerts(db: Session = Depends(get_db)):
 # --- FINANCIAL API ENDPOINTS ---
 
 @app.get("/api/finance/bill/{admission_uid}")
-async def get_bill(admission_uid: str, db: Session = Depends(get_db)):
+async def get_bill(
+    admission_uid: str, 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin)  # [RBAC] Only Admin can view bills
+):
     bill = db.query(models.Bill).filter(models.Bill.admission_uid == admission_uid).first()
     if not bill:
         # Check if admission exists and generate preview
@@ -1903,22 +1949,36 @@ async def get_bill(admission_uid: str, db: Session = Depends(get_db)):
         
         # Surgeries so far
         surgeries = db.query(models.SurgeryLog).filter_by(admission_uid=admission_uid).all()
-        surg_total = sum(s.price_at_time for s in surgeries)
+        surg_total = sum((s.price_at_time or 0.0) for s in surgeries)
 
         # [NEW] Resources so far
         consumables = db.query(models.InventoryLog).filter_by(admission_uid=admission_uid).all()
         cons_total = 0.0
+        cons_tax = 0.0
         for log in consumables:
+            # Defensive check for item existence
+            inv_item_query = db.query(models.InventoryItem).filter(models.InventoryItem.id == log.item_id).first()
+            if not inv_item_query:
+                continue
+                
             # Join with PriceMaster for latest price
             item_master = db.query(models.PriceMaster).filter(
                 models.PriceMaster.category == "CONSUMABLE",
-                models.PriceMaster.name == db.query(models.InventoryItem).filter(models.InventoryItem.id == log.item_id).first().name
+                models.PriceMaster.name == inv_item_query.name
             ).first()
+            
             if item_master:
-                cons_total += (item_master.price * log.quantity_used)
+                price = item_master.price or 0.0
+                tax_rate = item_master.gst_percent or 0.0
+                qty = log.quantity_used or 0
+                
+                line_total = price * qty
+                line_tax = line_total * (tax_rate / 100)
+                
+                cons_total += line_total
+                cons_tax += line_tax
         
-        est_total = bed_total + surg_total + cons_total
-        tax = est_total * 0.0 # Estimate
+        grand_total = bed_total + surg_total + cons_total + cons_tax
         
         return {
             "status": "ESTIMATE",
@@ -1928,8 +1988,9 @@ async def get_bill(admission_uid: str, db: Session = Depends(get_db)):
             "bed_charge": bed_total,
             "surgery_charge": surg_total,
             "resource_charge": cons_total,
-            "tax": tax,
-            "total": est_total
+            "tax_amount": cons_tax,
+            "grand_total": (grand_total or 0.0),
+            "total": (grand_total or 0.0) # Legacy support for frontend
         }
     
     # Return actual bill items
@@ -1944,7 +2005,11 @@ async def get_bill(admission_uid: str, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/finance/revenue/analytics")
-async def get_revenue_analytics(timeframe: str = "24h", db: Session = Depends(get_db)):
+async def get_revenue_analytics(
+    timeframe: str = "24h", 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin)  # [RBAC] Only Admin can view revenue analytics
+):
     """
     Aggregate Revenue Data.
     Timeframes: 24h, 7D, 1M, 1Y.
