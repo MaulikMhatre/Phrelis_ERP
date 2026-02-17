@@ -1,8 +1,7 @@
-
 @import "tailwindcss";
 
 :root {
-  --background: #000000; 
+  --background: #000000;
   --sidebar-bg: #050505;
   --card-bg: #0b0b0b;
   --indigo-glow: rgba(99, 102, 241, 0.15);
@@ -47,6 +46,58 @@ body {
 
 /* Proper Margin Helper for the Dashboard Gutter */
 .main-content-gutter {
-  padding-left: 5rem; 
+  padding-left: 5rem;
   padding-right: 3rem;
+}
+
+/* Print Optimization */
+@media print {
+  @page {
+    size: A4;
+    margin: 1cm;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Hide everything by default */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Show only the printable area */
+  .printable-area,
+  .printable-area * {
+    visibility: visible !important;
+  }
+
+  .printable-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Specific Table Styling for Print */
+  .printable-area table {
+    border-collapse: collapse !important;
+  }
+
+  .printable-area th,
+  .printable-area td {
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  /* Hide print buttons during print */
+  .no-print {
+    display: none !important;
+  }
 }

@@ -36,7 +36,6 @@ from langchain_core.prompts import ChatPromptTemplate
 load_dotenv()
 models.Base.metadata.create_all(bind=engine)
 
-# [NEW] Seed Price Master
 def seed_price_master():
     db = next(get_db())
     # Format: (Category, Name, Price, GST%, Description)
@@ -48,11 +47,11 @@ def seed_price_master():
         ("BED", "ICU", 20000.0, 0.0, "ICU Bed"),
         ("BED", "ICU_Ventilator", 35000.0, 0.0, "ICU Bed with Ventilator"),
         
-        # SURGERY RATES (Based on User Ranges)
-        ("SURGERY", "Minor", 12500.0, 0.0, "Abscess drainage, Stitches, Biopsy, Circumcision"),
-        ("SURGERY", "Intermediate", 52500.0, 0.0, "Appendectomy, Hernia repair, Tonsillectomy"),
-        ("SURGERY", "Major", 150000.0, 0.0, "Gallbladder (Laparoscopic), Hysterectomy, Knee Replacement"),
-        ("SURGERY", "Specialized", 425000.0, 0.0, "CABG (Cardiac Bypass), Neuro-surgery, Kidney Transplant"),
+        # SURGERY RATES (Services = 0% GST usually, but check prompt. Prompt says "Legal Tax Engine... 0% on Doctor/Bed fees (Healthcare Services)". So 0%.)
+        ("SURGERY", "Minor", 10000.0, 0.0, "Abscess drainage, Stitches"),
+        ("SURGERY", "Intermediate", 45000.0, 0.0, "Appendix, Hernia"),
+        ("SURGERY", "Major", 120000.0, 0.0, "Gallbladder, Joint Replacement"),
+        ("SURGERY", "Complex", 350000.0, 0.0, "Cardiac Bypass, Neuro"),
         
         # CONSULTATION (Just in case)
         ("CONSULTATION", "Specialist", 1500.0, 0.0, "Standard Consultation"),
@@ -101,7 +100,7 @@ def seed_doctor_rooms():
 
 seed_inventory()
 seed_doctor_rooms()
-seed_price_master() # [NEW]
+seed_price_master() 
 
 app = FastAPI(title="PHRELIS Hospital OS")
 
@@ -495,7 +494,7 @@ async def admit_patient(
 
     # [NEW] Create Financial Admission Record
     new_admission_uid = f"ADM-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
-    
+   
     # Save UID to bed and record for history tracking
     bed.admission_uid = new_admission_uid
     bed.created_by_uid = current_user.staff_id  # [RBAC] Track who admitted the patient
@@ -1322,6 +1321,18 @@ async def call_to_room(patient_id: str, room_id: str, db: Session = Depends(get_
     room.current_patient_id = patient_id
     
     db.commit()
+
+    # [NEW] Log Consultation for Billing
+    consult_price = BillingService.get_price(db, "Specialist") # Category CONSULTATION
+    new_consult = models.ConsultationLog(
+        patient_id=patient.id,
+        patient_name=patient.patient_name,
+        doctor_name=room.doctor_name,
+        room_id=room.id,
+        price_at_time=consult_price
+    )
+    db.add(new_consult)
+    db.commit()
     
     # Trigger Inventory Hook for OPD Consumables
     await InventoryService.process_usage(
@@ -1743,15 +1754,42 @@ def seed_db():
 
     # Seed Staff
     if db.query(models.Staff).count() == 0:
-        staff = [
-            models.Staff( id="A-01",  name="System Admin",  role="Admin",  is_clocked_in=True,  hashed_password="adminpassword" ),
-            models.Staff(id="N-01", name="Nurse Jackie", role="Nurse", is_clocked_in=True, hashed_password="password123"),
-            models.Staff(id="N-02", name="Nurse Ratched", role="Nurse", is_clocked_in=True, hashed_password="password123"),
-            models.Staff(id="N-03", name="Nurse Joy", role="Nurse", is_clocked_in=False, hashed_password="password123"),
-            models.Staff(id="D-01", name="Dr. House", role="Doctor", is_clocked_in=True, hashed_password="password123"),
-            models.Staff(id="D-02", name="Dr. Strange", role="Doctor", is_clocked_in=False, hashed_password="password123"),
+        staff_members = []
+        
+        # Admin
+        staff_members.append(models.Staff(id="A-01", name="System Admin", role="Admin", is_clocked_in=True, hashed_password="adminpassword"))
+        
+        # 10 Doctors (D-01 to D-10)
+        doctor_names = [
+            "Dr. House", "Dr. Strange", "Dr. Quinn", "Dr. Watson", "Dr. Grey",
+            "Dr. Shepherd", "Dr. Dorian", "Dr. Cox", "Dr. Wilson", "Dr. Zhivago"
         ]
-        db.add_all(staff)
+        for i in range(10):
+            staff_members.append(models.Staff(
+                id=f"D-{str(i+1).zfill(2)}",
+                name=doctor_names[i],
+                role="Doctor",
+                is_clocked_in=(i % 2 == 0), # Half clocked in
+                hashed_password="password123"
+            ))
+            
+        # 20 Nurses (N-01 to N-20)
+        nurse_names = [
+            "Nurse Jackie", "Nurse Ratched", "Nurse Joy", "Nurse Carol", "Nurse Abby",
+            "Nurse Sam", "Nurse Haleh", "Nurse Chuny", "Nurse Malik", "Nurse Lily",
+            "Nurse Rose", "Nurse Daisy", "Nurse Violet", "Nurse Iris", "Nurse Flora",
+            "Nurse Skye", "Nurse River", "Nurse Willow", "Nurse Autumn", "Nurse Summer"
+        ]
+        for i in range(20):
+            staff_members.append(models.Staff(
+                id=f"N-{str(i+1).zfill(2)}",
+                name=nurse_names[i],
+                role="Nurse",
+                is_clocked_in=(i < 12), # 60% clocked in
+                hashed_password="password123"
+            ))
+            
+        db.add_all(staff_members)
         db.commit()
     
 
@@ -1978,7 +2016,71 @@ async def get_bill(
                 cons_total += line_total
                 cons_tax += line_tax
         
-        grand_total = bed_total + surg_total + cons_total + cons_tax
+        # [NEW] Consultations so far
+        consult_total = db.query(func.sum(models.ConsultationLog.price_at_time)).filter_by(patient_id=adm.patient_id, bill_no=None).scalar() or 0.0
+
+        # [NEW] Detailed Itemization for Estimate
+        estimate_items = []
+        
+        # 1. Bed charges
+        estimate_items.append({
+            "description": f"Bed Utilization ({bed_cat}) - {days} Days",
+            "quantity": days,
+            "unit_price": bed_price,
+            "total_price": bed_total,
+            "tax_percent": 0.0,
+            "tax_amount": 0.0
+        })
+
+        # 2. Surgeries
+        for s in surgeries:
+            estimate_items.append({
+                "description": f"Surgery - {s.surgery_name}",
+                "quantity": 1,
+                "unit_price": s.price_at_time,
+                "total_price": s.price_at_time,
+                "tax_percent": 0.0,
+                "tax_amount": 0.0
+            })
+
+        # 3. Consumables
+        for log in consumables:
+            inv_item_query = db.query(models.InventoryItem).filter(models.InventoryItem.id == log.item_id).first()
+            if not inv_item_query: continue
+            item_master = db.query(models.PriceMaster).filter(
+                models.PriceMaster.category == "CONSUMABLE",
+                models.PriceMaster.name == inv_item_query.name
+            ).first()
+            
+            if item_master:
+                price = item_master.price or 0.0
+                tax_rate = item_master.gst_percent or 0.0
+                qty = log.quantity_used or 0
+                line_total = price * qty
+                line_tax = line_total * (tax_rate / 100)
+                
+                estimate_items.append({
+                    "description": f"Resource - {inv_item_query.name}",
+                    "quantity": qty,
+                    "unit_price": price,
+                    "total_price": line_total,
+                    "tax_percent": tax_rate,
+                    "tax_amount": line_tax
+                })
+
+        # 4. Consultations
+        consultations = db.query(models.ConsultationLog).filter_by(patient_id=adm.patient_id, bill_no=None).all()
+        for c in consultations:
+            estimate_items.append({
+                "description": f"Consultation - Dr. {c.doctor_name or 'Staff'} ({c.room_id or 'OPD'})",
+                "quantity": 1,
+                "unit_price": c.price_at_time,
+                "total_price": c.price_at_time,
+                "tax_percent": 0.0,
+                "tax_amount": 0.0
+            })
+
+        grand_total = bed_total + surg_total + cons_total + cons_tax + consult_total
         
         return {
             "status": "ESTIMATE",
@@ -1988,20 +2090,76 @@ async def get_bill(
             "bed_charge": bed_total,
             "surgery_charge": surg_total,
             "resource_charge": cons_total,
+            "consultation_charge": consult_total,
             "tax_amount": cons_tax,
             "grand_total": (grand_total or 0.0),
-            "total": (grand_total or 0.0) # Legacy support for frontend
+            "total": (grand_total or 0.0), # Legacy support
+            "items": estimate_items
         }
     
     # Return actual bill items
     items = db.query(models.BillItem).filter(models.BillItem.bill_no == bill.bill_no).all()
+    
+    # Fetch patient name for final record
+    adm_name = db.query(models.Admission.patient_name).filter_by(admission_uid=bill.admission_uid).scalar() or "Unknown"
+
     return {
         "status": "FINAL",
         "bill_no": bill.bill_no,
+        "admission_uid": bill.admission_uid,
+        "patient_name": adm_name,
         "total_amount": bill.total_amount,
         "tax_amount": bill.tax_amount,
         "grand_total": bill.grand_total,
+        "total": bill.grand_total, # Legacy support
+        "is_paid": bill.is_paid,
+        "generated_at": bill.generated_at,
         "items": items
+    }
+
+@app.get("/api/finance/ledger")
+def get_finance_ledger(
+    db: Session = Depends(get_db),
+    page: int = 1,
+    limit: int = 20,
+    search: Optional[str] = None,
+    current_user: CurrentUser = Depends(require_admin)  # [RBAC]
+):
+    query = db.query(models.Bill)
+    
+    if search:
+        # Search by Bill No or Admission UID
+        query = query.filter(
+            (models.Bill.bill_no.ilike(f"%{search}%")) |
+            (models.Bill.admission_uid.ilike(f"%{search}%"))
+        )
+    
+    total = query.count()
+    bills = query.order_by(models.Bill.generated_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    data = []
+    for b in bills:
+        # Fetch patient name from Admission or PatientQueue/ConsultationLog fallback
+        adm_name = db.query(models.Admission.patient_name).filter_by(admission_uid=b.admission_uid).scalar()
+        if not adm_name:
+             # Try to find in PatientQueue via consultation search
+             # (This is more complex, but we can stick to Admission for now or fallback to "Unknown")
+             adm_name = "Unknown / OPD"
+             
+        data.append({
+            "bill_no": b.bill_no,
+            "admission_uid": b.admission_uid,
+            "patient_name": adm_name,
+            "amount": b.grand_total,
+            "status": "PAID" if b.is_paid else "PENDING",
+            "time": b.generated_at.isoformat()
+        })
+        
+    return {
+        "transactions": data,
+        "total": total,
+        "page": page,
+        "total_pages": math.ceil(total / limit)
     }
 
 @app.get("/api/finance/revenue/analytics")
@@ -2025,43 +2183,53 @@ async def get_revenue_analytics(
     bills = db.query(models.Bill).filter(models.Bill.generated_at >= start_time).all()
     total_revenue = sum(b.grand_total or 0.0 for b in bills)
     
-    # 2. Revenue Trend (Line Graph)
-    # Aggregate bills by time buckets
-    trend_map = {}
+    # 2. Revenue Trend (Chronological Line Graph)
+    trend_buckets = []
     
-    # Determine bucket format
     if timeframe == "24h":
-        # Bucket by Hour: "HH:00"
-        time_format = "%H:00"
-        # Pre-fill last 24h with 0
-        for i in range(24):
-            t = (now - timedelta(hours=i)).strftime(time_format)
-            trend_map[t] = 0.0
+        # Last 24 hours, hourly buckets
+        for i in range(23, -1, -1):
+            t = now - timedelta(hours=i)
+            bucket_time = t.replace(minute=0, second=0, microsecond=0)
+            trend_buckets.append({
+                "timestamp": bucket_time,
+                "label": bucket_time.strftime("%H:00"),
+                "revenue": 0.0
+            })
     else:
-        # Bucket by Day: "YYYY-MM-DD" or just "Mon", "Tue"
-        time_format = "%Y-%m-%d"
-        # Pre-fill coverage
+        # Daily buckets
         days = 7 if timeframe == "7D" else 30
         if timeframe == "1Y": days = 365
-        for i in range(days):
-            t = (now - timedelta(days=i)).strftime(time_format)
-            trend_map[t] = 0.0
+        for i in range(days-1, -1, -1):
+            t = now - timedelta(days=i)
+            bucket_time = t.replace(hour=0, minute=0, second=0, microsecond=0)
+            trend_buckets.append({
+                "timestamp": bucket_time,
+                "label": bucket_time.strftime("%Y-%m-%d"),
+                "revenue": 0.0
+            })
 
     for bill in bills:
-        # Round generated_at to bucket
-        key = bill.generated_at.strftime(time_format)
-        if key in trend_map:
-            trend_map[key] += (bill.grand_total or 0.0)
+        # Find the bucket for this bill
+        b_time = bill.generated_at
+        for bucket in trend_buckets:
+            if timeframe == "24h":
+                if b_time.hour == bucket["timestamp"].hour and b_time.date() == bucket["timestamp"].date():
+                    bucket["revenue"] += (bill.grand_total or 0.0)
+                    break 
+            else:
+                if b_time.date() == bucket["timestamp"].date():
+                    bucket["revenue"] += (bill.grand_total or 0.0)
+                    break
         
-    # Convert to List for Recharts
-    # Sort by time
-    sorted_keys = sorted(trend_map.keys())
-    trend_data = [{"time": k, "revenue": trend_map[k]} for k in sorted_keys]
+    trend_data = [{"time": b["label"], "revenue": b["revenue"]} for b in trend_buckets]
 
-    
-    # 3. Revenue by Category (Bed vs Surgery) - Bar Chart
+    # 3. Revenue by Category (Bed vs Surgery vs Pharmacy)
     bed_revenue = 0.0
     surgery_revenue = 0.0
+    pharmacy_revenue = 0.0
+    consultation_revenue = 0.0
+    total_tax = sum(b.tax_amount or 0.0 for b in bills)
     
     # Get all bills IDs first
     bill_ids = [b.bill_no for b in bills]
@@ -2074,28 +2242,80 @@ async def get_revenue_analytics(
                 bed_revenue += price 
             elif "Surgery" in desc:
                 surgery_revenue += price
+            elif "Resource" in desc:
+                pharmacy_revenue += price
+            elif "Consultation" in desc:
+                consultation_revenue += price
     
-    # 4. KPI: ARPP (Average Revenue Per Patient)
+    # 4. Growth Calculation (v Previous Period)
+    prev_start_time = start_time - (now - start_time)
+    prev_bills = db.query(models.Bill).filter(
+        models.Bill.generated_at >= prev_start_time,
+        models.Bill.generated_at < start_time
+    ).all()
+    prev_revenue = sum(b.grand_total or 0.0 for b in prev_bills)
+    growth = ((total_revenue - prev_revenue) / prev_revenue * 100) if prev_revenue > 0 else (100.0 if total_revenue > 0 else 0.0)
+
+    # 5. Active Estimates Sum (Potential Revenue)
+    active_admissions = db.query(models.Admission).filter_by(status="ACTIVE").all()
+    # For a high-performance analytics endpoint, we might want to approximate here
+    # rather than running calculate_bed_days for everyone, but let's be accurate for now
+    potential_revenue = 0.0
+    for adm in active_admissions:
+        days = BillingService.calculate_bed_days(adm.admission_time, now)
+        bed = db.query(models.BedModel).filter_by(id=adm.bed_id).first()
+        bed_price = 3000.0 # Default
+        if bed:
+            bp_item = db.query(models.PriceMaster).filter_by(name=bed.billing_category or "Ward").first()
+            if bp_item: bed_price = bp_item.price
+        
+        potential_revenue += (days * bed_price)
+        # Add surgeries already logged
+        s_total = db.query(func.sum(models.SurgeryLog.price_at_time)).filter_by(admission_uid=adm.admission_uid).scalar() or 0.0
+        potential_revenue += s_total
+        # [NEW] Add unbilled consultations
+        c_total = db.query(func.sum(models.ConsultationLog.price_at_time)).filter_by(patient_id=adm.patient_id, bill_no=None).scalar() or 0.0
+        potential_revenue += c_total
+
+    # 6. KPI: ARPP (Average Revenue Per Patient)
     unique_patients = len(set(b.admission_uid for b in bills))
     arpp = total_revenue / unique_patients if unique_patients > 0 else 0.0
     
-    # 5. KPI: Occupancy Rate (Current snapshot)
+    # 7. KPI: Occupancy Rate (Current snapshot)
     total_beds = db.query(models.BedModel).count()
     occupied_beds = db.query(models.BedModel).filter_by(is_occupied=True).count()
     occupancy_rate = (occupied_beds / total_beds * 100) if total_beds > 0 else 0.0
     
+    # 8. Recent Activities (Last 20 Bills)
+    recent_bills = db.query(models.Bill).order_by(models.Bill.generated_at.desc()).limit(20).all()
+    recent_data = []
+    for rb in recent_bills:
+        adm_name = db.query(models.Admission.patient_name).filter_by(admission_uid=rb.admission_uid).scalar() or "Unknown / OPD"
+        recent_data.append({
+            "bill_no": rb.bill_no,
+            "patient_name": adm_name,
+            "amount": rb.grand_total,
+            "status": "PAID" if rb.is_paid else "PENDING",
+            "time": rb.generated_at.isoformat()
+        })
+
     return {
         "kpi": {
             "total_revenue": total_revenue,
             "arpp": arpp,
-            "occupancy_rate": occupancy_rate
+            "occupancy_rate": occupancy_rate,
+            "growth": growth,
+            "potential_revenue": potential_revenue,
+            "total_tax": total_tax
         },
         "breakdown": {
             "bed_revenue": bed_revenue,
             "surgery_revenue": surgery_revenue,
-            "pharmacy_revenue": 0.0 
+            "pharmacy_revenue": pharmacy_revenue,
+            "consultation_revenue": consultation_revenue
         },
-        "trend": trend_data 
+        "trend": trend_data,
+        "recent": recent_data
     }
 
 if __name__ == "__main__":

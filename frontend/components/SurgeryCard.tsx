@@ -13,6 +13,7 @@ import {
     Plus
 } from "lucide-react";
 import { endpoints } from "@/utils/api";
+import { useAuth } from "@/context/AuthContext";
 
 // --- Types ---
 interface SurgeryRoom {
@@ -32,12 +33,12 @@ interface SurgeryCardProps {
 }
 
 // --- High Performance Timer Sub-Component ---
-const SurgeryTimer = ({ 
-    expectedEndTime, 
-    onOvertime 
-}: { 
-    expectedEndTime: string; 
-    onOvertime: (val: boolean) => void 
+const SurgeryTimer = ({
+    expectedEndTime,
+    onOvertime
+}: {
+    expectedEndTime: string;
+    onOvertime: (val: boolean) => void
 }) => {
     const [timeLeft, setTimeLeft] = useState("--:--");
 
@@ -82,6 +83,7 @@ const SurgeryTimer = ({
 
 // --- Main SurgeryCard Component ---
 export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProps) {
+    const { token } = useAuth();
     const [isOvertime, setIsOvertime] = useState(false);
     const [showCheckIn, setShowCheckIn] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -105,11 +107,14 @@ export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProp
         try {
             const res = await fetch(url, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: body ? JSON.stringify(body) : undefined,
             });
             if (res.ok) {
-                onUpdate(); 
+                onUpdate();
                 setShowCheckIn(false);
             }
         } catch (e) {
@@ -136,9 +141,9 @@ export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProp
     };
 
     // Logic: Only show the clock if state is active AND we have an end time
-    const showTimer = (room.current_state === "OCCUPIED" || room.current_state === "OVERTIME") && 
-                      !!room.expected_end_time && 
-                      room.expected_end_time !== room.admission_time;
+    const showTimer = (room.current_state === "OCCUPIED" || room.current_state === "OVERTIME") &&
+        !!room.expected_end_time &&
+        room.expected_end_time !== room.admission_time;
 
     return (
         <div className={`relative p-5 rounded-2xl border backdrop-blur-md transition-all duration-500 ${getStatusColor()}`}>
@@ -162,9 +167,9 @@ export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProp
             {/* Content Section */}
             <div className="space-y-3 mb-5">
                 {showTimer ? (
-                    <SurgeryTimer 
-                        expectedEndTime={room.expected_end_time!} 
-                        onOvertime={setIsOvertime} 
+                    <SurgeryTimer
+                        expectedEndTime={room.expected_end_time!}
+                        onOvertime={setIsOvertime}
                     />
                 ) : room.current_state === "OCCUPIED" ? (
                     <div className="text-center py-4 bg-blue-500/5 rounded-lg border border-dashed border-blue-500/20">
@@ -175,9 +180,8 @@ export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProp
                 ) : null}
 
                 {room.current_state !== "AVAILABLE" && (
-                    <div className={`bg-white/5 rounded-xl p-3 border border-white/5 space-y-2 transition-opacity ${
-                        (room.current_state === "DIRTY" || room.current_state === "CLEANING") ? "opacity-40" : "opacity-100"
-                    }`}>
+                    <div className={`bg-white/5 rounded-xl p-3 border border-white/5 space-y-2 transition-opacity ${(room.current_state === "DIRTY" || room.current_state === "CLEANING") ? "opacity-40" : "opacity-100"
+                        }`}>
                         <div className="flex items-center gap-3">
                             <User size={14} className="text-blue-400" />
                             <span className="text-xs font-bold text-gray-200 truncate">{room.patient_name || "Unknown Patient"}</span>
@@ -222,7 +226,7 @@ export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProp
                         onClick={() => handleAction("release")}
                         className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2"
                     >
-                        <RefreshCw size={14} className={room.current_state === "CLEANING" ? "animate-spin" : ""} /> 
+                        <RefreshCw size={14} className={room.current_state === "CLEANING" ? "animate-spin" : ""} />
                         Finalize Turnover
                     </button>
                 )}
@@ -257,14 +261,14 @@ export default function SurgeryCard({ room, onUpdate, onAdmit }: SurgeryCardProp
                         <h4 className="text-white font-black text-sm uppercase tracking-tight mb-1">Confirm Completion?</h4>
                         <p className="text-[10px] text-slate-400 mb-6">Patient data will be archived and room turnover will begin.</p>
                         <div className="w-full space-y-2">
-                            <button 
-                                onClick={() => handleAction("complete")} 
+                            <button
+                                onClick={() => handleAction("complete")}
                                 className="w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl text-[10px] font-black text-white uppercase tracking-widest transition-colors"
                             >
                                 Confirm & Clean
                             </button>
-                            <button 
-                                onClick={() => setShowCheckIn(false)} 
+                            <button
+                                onClick={() => setShowCheckIn(false)}
                                 className="w-full py-2 text-[10px] font-bold text-slate-500 uppercase hover:text-white transition-colors"
                             >
                                 Cancel

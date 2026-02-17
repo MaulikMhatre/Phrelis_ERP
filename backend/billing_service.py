@@ -206,10 +206,33 @@ class BillingService:
                     "tax_amount": c_line_tax
                 })
 
-        # 4. Create Bill Record
-        grand_total = (bed_total + bed_tax) + (surgery_total + surgery_tax) + (consumable_total + consumable_tax)
+        # 4. Get Consultation Charges
+        # Fetch unbilled consultations for this patient
+        consult_logs = db.query(models.ConsultationLog).filter(
+            models.ConsultationLog.patient_id == admission.patient_id,
+            models.ConsultationLog.bill_no == None
+        ).all()
+        consult_total = 0.0
+        consult_tax = 0.0 # Standardized 0% for consults per previous logic, but let's check PriceMaster
+        
+        for consult in consult_logs:
+            c_price = consult.price_at_time or 0.0
+            consult_total += c_price
+            # consult_tax += 0.0
+            
+            bill_items.append({
+                "description": f"Consultation - {consult.doctor_name} ({consult.room_id})",
+                "quantity": 1,
+                "unit_price": c_price,
+                "total_price": c_price,
+                "tax_percent": 0.0,
+                "tax_amount": 0.0
+            })
+
+        # 5. Create Bill Record
+        grand_total = (bed_total + bed_tax) + (surgery_total + surgery_tax) + (consumable_total + consumable_tax) + consult_total
         total_tax = bed_tax + surgery_tax + consumable_tax
-        pre_tax_total = bed_total + surgery_total + consumable_total
+        pre_tax_total = bed_total + surgery_total + consumable_total + consult_total
         
         bill_no = f"BILL-{datetime.utcnow().year}-{uuid.uuid4().hex[:6].upper()}"
         

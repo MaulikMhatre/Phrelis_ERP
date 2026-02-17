@@ -286,3 +286,14 @@ class BillItem(Base):
     total_price = Column(Float) # qty * unit_price
     tax_percent = Column(Float)
     tax_amount = Column(Float)
+
+class ConsultationLog(Base):
+    __tablename__ = "consultation_logs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(String, index=True)
+    patient_name = Column(String)
+    doctor_name = Column(String, nullable=True)
+    room_id = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    price_at_time = Column(Float)
+    bill_no = Column(String, nullable=True) # Linked once billed

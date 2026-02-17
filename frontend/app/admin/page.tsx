@@ -13,6 +13,7 @@ import ResourceInventory from '@/components/ResourceInventory';
 import SurgerySection from '@/components/SurgerySection';
 import { endpoints } from '@/utils/api';
 import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
 
 // --- HELPERS ---
 const formatIST = (isoString?: string) => {
@@ -132,6 +133,7 @@ const CleaningTimer = ({ bedId, onRequestUnlock }: { bedId: string, onRequestUnl
 };
 
 const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accentColor, genderLock, patientGender }: any) => {
+  const { token } = useAuth();
   const isRed = accentColor === 'red';
   const isGreen = accentColor === 'green';
   const isLocked = !bed.is_occupied && genderLock && genderLock !== 'Any' && patientGender && patientGender !== genderLock;
@@ -146,7 +148,10 @@ const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accent
 
   const handleManualUnlock = async () => {
     try {
-      await fetch(endpoints.cleaningComplete(bed.id), { method: 'POST' });
+      await fetch(endpoints.cleaningComplete(bed.id), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       localStorage.removeItem(`cleaning_end_time_${bed.id}`);
       onRefresh();
     } catch (e) { console.error(e); }
@@ -212,6 +217,7 @@ const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accent
 // --- MAIN PANEL ---
 
 const AdminPanel = () => {
+  const { token } = useAuth();
   const { toast } = useToast();
   const [beds, setBeds] = useState<any[]>([]);
   const [ambulances, setAmbulances] = useState<any[]>([]);
@@ -257,13 +263,32 @@ const AdminPanel = () => {
     return () => ws.close();
   }, [fetchERPData]);
 
-  const handleStartCleaning = async (id: string) => { await fetch(endpoints.startCleaning(id), { method: 'POST' }); fetchERPData(); };
-  const resetAmbulance = async (id: string) => { await fetch(endpoints.ambulanceReset(id), { method: 'POST' }); fetchERPData(); };
+  const handleStartCleaning = async (id: string) => {
+    await fetch(endpoints.startCleaning(id), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    fetchERPData();
+  };
+  const resetAmbulance = async (id: string) => {
+    await fetch(endpoints.ambulanceReset(id), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    fetchERPData();
+  };
 
   const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(endpoints.ambulanceDispatch, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dispatchForm) });
+      const res = await fetch(endpoints.ambulanceDispatch, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(dispatchForm)
+      });
       const data = await res.json();
       toast(data.status === 'DISPATCHED' ? "Unit Authorized" : "Dispatch Failed", data.status === 'DISPATCHED' ? "success" : "error");
       fetchERPData();
@@ -272,7 +297,10 @@ const AdminPanel = () => {
 
   const confirmDischarge = async () => {
     if (!dischargeBedId) return;
-    await fetch(endpoints.discharge(dischargeBedId), { method: 'POST' });
+    await fetch(endpoints.discharge(dischargeBedId), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
     toast("Patient Discharged", "success");
     setDischargeBedId(null);
     fetchERPData();
@@ -306,7 +334,10 @@ const AdminPanel = () => {
       if (selectedBed.type === 'Surgery') {
         res = await fetch(endpoints.startSurgery, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
           body: JSON.stringify({
             ...payload,
             surgeon_name: patientData.surgeonName,
@@ -316,7 +347,14 @@ const AdminPanel = () => {
           })
         });
       } else {
-        res = await fetch(endpoints.admit, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        res = await fetch(endpoints.admit, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
       }
       if (res.ok) { setIsModalOpen(false); toast("Admission Confirmed", "success"); fetchERPData(); }
       else { toast("Admission Rejected", "error"); }
