@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { Package, AlertTriangle, Activity, Box, ChevronLeft, ChevronRight, X, Clock } from 'lucide-react';
+import { Package, AlertTriangle, Activity, Box, ChevronLeft, ChevronRight, X, Clock, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/context/AuthContext';
 
 interface ResourceProps {
   resources?: any;
@@ -61,8 +62,19 @@ const Sparkline = ({ color }: { color: string }) => {
 }
 
 const ResourceInventory: React.FC<ResourceProps> = () => {
+  const { token, role } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    category: 'General',
+    quantity: 0,
+    reorder_level: 0
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [restockModalItem, setRestockModalItem] = useState<InventoryItem | null>(null);
+  const [restockQuantity, setRestockQuantity] = useState(0);
 
   // [UPDATED] Fetch from Forecast Endpoint
   const fetchInventory = async () => {
@@ -73,6 +85,70 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
         setInventory(data);
       }
     } catch (e) { console.error("Failed to fetch inventory", e); }
+  };
+
+  const handleAddResource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch('http://localhost:8000/api/inventory/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (res.ok) {
+        setIsAddModalOpen(false);
+        setFormData({ name: '', category: 'General', quantity: 0, reorder_level: 0 });
+        fetchInventory();
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to add resource');
+      }
+    } catch (e) {
+      console.error("Failed to add resource", e);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRestock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!restockModalItem) return;
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch('http://localhost:8000/api/inventory/restock', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          item_id: restockModalItem.id,
+          quantity_to_add: restockQuantity
+        })
+      });
+
+      if (res.ok) {
+        setRestockModalItem(null);
+        setRestockQuantity(0);
+        fetchInventory();
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to restock');
+      }
+    } catch (e) {
+      console.error("Failed to restock", e);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -142,6 +218,15 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            {role === 'Admin' && (
+              <button
+                onClick={() => setIsAddModalOpen(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black uppercase tracking-wider text-white transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+              >
+                <Plus size={16} />
+                Add Resource
+              </button>
+            )}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
               <div className={`w-2 h-2 rounded-full ${inventory.some(i => i.status === "Critical") ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'} animate-pulse`} />
               <span className="text-[9px] font-black text-emerald-400 uppercase tracking-wider">System Operational</span>
@@ -237,8 +322,21 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
                     </div>
                   )}
 
-                  <div className={`text-[9px] font-black px-3 py-1 rounded-md uppercase tracking-wider ${isCritical ? 'bg-rose-500/10 text-rose-400' : (isWarning ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400')}`}>
-                    {item.burn_rate.toFixed(1)} Units / Hr
+                  <div className="flex items-center gap-2">
+                    <div className={`text-[9px] font-black px-3 py-1 rounded-md uppercase tracking-wider ${isCritical ? 'bg-rose-500/10 text-rose-400' : (isWarning ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400')}`}>
+                      {item.burn_rate.toFixed(1)} Units / Hr
+                    </div>
+                    {role === 'Admin' && (
+                      <button
+                        onClick={() => {
+                          setRestockModalItem(item);
+                          setRestockQuantity(0);
+                        }}
+                        className="text-[9px] font-black px-3 py-1 rounded-md uppercase tracking-wider bg-indigo-600 hover:bg-indigo-500 text-white transition-all"
+                      >
+                        Restock
+                      </button>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -253,6 +351,181 @@ const ResourceInventory: React.FC<ResourceProps> = () => {
           )}
         </div>
       </motion.div>
+
+      {/* ADD RESOURCE MODAL */}
+      <AnimatePresence>
+        {isAddModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => setIsAddModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-[#0b0b0b] rounded-[2.5rem] p-10 max-w-xl w-full border border-indigo-500/20 relative z-10 shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-6">
+                <div>
+                  <h2 className="text-3xl font-black text-white tracking-tighter">Add Resource</h2>
+                  <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mt-1">Supply Chain Management</p>
+                </div>
+                <button
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="p-2 bg-slate-900 rounded-full text-slate-400 hover:text-white hover:bg-red-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddResource} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Resource Name</label>
+                  <input
+                    required
+                    className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-medium transition-all"
+                    placeholder="e.g., Surgical Masks"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Category</label>
+                  <select
+                    className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-medium transition-all appearance-none cursor-pointer"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  >
+                    <option value="General">General</option>
+                    <option value="ICU">ICU</option>
+                    <option value="ER">ER</option>
+                    <option value="Surgery">Surgery</option>
+                    <option value="OPD">OPD</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Initial Quantity</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-medium transition-all"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Reorder Level</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-medium transition-all"
+                      value={formData.reorder_level}
+                      onChange={(e) => setFormData({ ...formData, reorder_level: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className={`w-full py-5 font-black uppercase tracking-[0.2em] rounded-2xl mt-4 transition-all hover:scale-[1.02] active:scale-[0.98] ${isSubmitting
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-[0_10px_40px_rgba(79,70,229,0.3)]'
+                    }`}
+                >
+                  {isSubmitting ? 'Adding...' : 'Add Resource'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* RESTOCK MODAL */}
+      <AnimatePresence>
+        {restockModalItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              onClick={() => setRestockModalItem(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-[#0b0b0b] rounded-[2.5rem] p-10 max-w-lg w-full border border-indigo-500/20 relative z-10 shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-6">
+                <div>
+                  <h2 className="text-3xl font-black text-white tracking-tighter">Restock Item</h2>
+                  <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mt-1">{restockModalItem.name}</p>
+                </div>
+                <button
+                  onClick={() => setRestockModalItem(null)}
+                  className="p-2 bg-slate-900 rounded-full text-slate-400 hover:text-white hover:bg-red-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="mb-6 p-6 bg-[#0f172a] rounded-2xl border border-slate-800">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Current Stock</span>
+                  <span className="text-2xl font-black text-white">{restockModalItem.quantity}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Category</span>
+                  <span className="text-sm font-bold text-indigo-400">{restockModalItem.category}</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleRestock} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-1">Quantity to Add</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    className="w-full p-5 bg-[#0f172a] border border-slate-800 focus:border-indigo-500 rounded-2xl text-white outline-none font-medium transition-all text-2xl text-center"
+                    placeholder="0"
+                    value={restockQuantity || ''}
+                    onChange={(e) => setRestockQuantity(parseInt(e.target.value) || 0)}
+                  />
+                  {restockQuantity > 0 && (
+                    <p className="text-center text-sm font-bold text-emerald-400">
+                      New Total: {restockModalItem.quantity + restockQuantity}
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || restockQuantity <= 0}
+                  className={`w-full py-5 font-black uppercase tracking-[0.2em] rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] ${isSubmitting || restockQuantity <= 0
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-[0_10px_40px_rgba(16,185,129,0.3)]'
+                    }`}
+                >
+                  {isSubmitting ? 'Restocking...' : 'Confirm Restock'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

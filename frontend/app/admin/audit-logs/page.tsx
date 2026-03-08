@@ -101,7 +101,7 @@ export default function SystemSentinel() {
                     <div>
                         <h1 className="text-2xl font-black tracking-tighter text-white uppercase flex items-center gap-3">
                             Phrelis System Sentinel
-                            <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/10 text-red-500 border border-red-500/20 font-bold tracking-widest">TOP SECRET</span>
+                            
                         </h1>
                         <p className="text-xs text-indigo-400/60 font-bold uppercase tracking-[0.2em] flex items-center gap-2 mt-1">
                             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />

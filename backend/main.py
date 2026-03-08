@@ -488,6 +488,150 @@ async def get_audit_logs(
     return logs
 
 
+# ===== INVENTORY MANAGEMENT ENDPOINTS =====
+
+class InventoryAddRequest(BaseModel):
+    name: str
+    category: str
+    quantity: int
+    reorder_level: int
+
+@app.get("/api/inventory/forecast")
+async def get_inventory_forecast(db: Session = Depends(get_db)):
+    """
+    Returns inventory with burn rate calculations and predictive status.
+    """
+    items = db.query(models.InventoryItem).all()
+    forecast_data = []
+    
+    for item in items:
+        # Calculate burn rate from recent usage logs (last 24 hours)
+        recent_logs = db.query(models.InventoryLog).filter(
+            models.InventoryLog.item_id == item.id,
+            models.InventoryLog.timestamp >= datetime.utcnow() - timedelta(hours=24)
+        ).all()
+        
+        total_used = sum(log.quantity_used for log in recent_logs)
+        burn_rate = total_used / 24.0  # units per hour
+        
+        # Calculate hours remaining
+        if burn_rate > 0.1:
+            hours_remaining = int(item.quantity / burn_rate)
+        else:
+            hours_remaining = 9999
+        
+        # Determine status
+        if hours_remaining < 12:
+            status = "Critical"
+        elif hours_remaining < 48:
+            status = "Warning"
+        else:
+            status = "Normal"
+        
+        forecast_data.append({
+            "id": item.id,
+            "name": item.name,
+            "category": item.category,
+            "quantity": item.quantity,
+            "reorder_level": item.reorder_level,
+            "burn_rate": round(burn_rate, 2),
+            "hours_remaining": hours_remaining,
+            "status": status
+        })
+    
+    return forecast_data
+
+@app.post("/api/inventory/add")
+async def add_inventory_item(
+    request: InventoryAddRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin)  # Admin-only
+):
+    """
+    Add a new inventory item. Admin-only endpoint.
+    """
+    # Check if item already exists
+    existing = db.query(models.InventoryItem).filter(
+        models.InventoryItem.name == request.name
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Item '{request.name}' already exists")
+    
+    # Validate inputs
+    if request.quantity < 0 or request.reorder_level < 0:
+        raise HTTPException(status_code=400, detail="Quantity and reorder level must be non-negative")
+    
+    # Create new item
+    new_item = models.InventoryItem(
+        name=request.name,
+        category=request.category,
+        quantity=request.quantity,
+        reorder_level=request.reorder_level
+    )
+    
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+    
+    # Broadcast update
+    await manager.broadcast({"type": "REFRESH_INVENTORY"})
+    
+    return {
+        "message": "Inventory item added successfully",
+        "item": {
+            "id": new_item.id,
+            "name": new_item.name,
+            "category": new_item.category,
+            "quantity": new_item.quantity,
+            "reorder_level": new_item.reorder_level
+        }
+    }
+
+
+class InventoryRestockRequest(BaseModel):
+    item_id: int
+    quantity_to_add: int
+
+@app.patch("/api/inventory/restock")
+async def restock_inventory_item(
+    request: InventoryRestockRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin)  # Admin-only
+):
+    """
+    Add quantity to an existing inventory item. Admin-only endpoint.
+    """
+    item = db.query(models.InventoryItem).filter(
+        models.InventoryItem.id == request.item_id
+    ).first()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Item with ID {request.item_id} not found")
+    
+    if request.quantity_to_add <= 0:
+        raise HTTPException(status_code=400, detail="Quantity to add must be positive")
+    
+    old_quantity = item.quantity
+    item.quantity += request.quantity_to_add
+    
+    db.commit()
+    db.refresh(item)
+    
+    await manager.broadcast({"type": "REFRESH_INVENTORY"})
+    
+    return {
+        "message": f"Successfully restocked {item.name}",
+        "item": {
+            "id": item.id,
+            "name": item.name,
+            "old_quantity": old_quantity,
+            "new_quantity": item.quantity,
+            "added": request.quantity_to_add
+        }
+    }
+
+
 @app.post("/api/erp/admit")
 async def admit_patient(
     request: AdmissionRequest, 
