@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { PlusCircle, Activity, Thermometer, Droplets, User, Calendar, Info, ShieldCheck, Search, Sparkles, AlertTriangle } from "lucide-react";
+import { PlusCircle, Activity, Thermometer, Droplets, User, Info, Sparkles, AlertTriangle } from "lucide-react";
 
 export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) => void }) {
     const [formData, setFormData] = useState({
@@ -56,7 +57,7 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
             }));
         } catch (err: any) {
             console.error("AI Analysis failed", err);
-            setError(err.message || "Failed to fetch AI analysis. Check backend connectivity.");
+            setError(err.message || "Failed to fetch AI analysis.");
         } finally {
             setIsAnalyzing(false);
         }
@@ -64,8 +65,6 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-
-        // Clean data for backend Pydantic model
         const submitData = {
             patient_name: formData.patient_name,
             patient_age: parseInt(formData.patient_age),
@@ -81,9 +80,7 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
                 spo2: parseInt(formData.spo2) || 98
             }
         };
-
         onCheckIn(submitData);
-
         setFormData({
             patient_name: "", patient_age: "", gender: "Male",
             base_acuity: "3", complaint: "", symptoms: "", icd_code: "",
@@ -93,20 +90,21 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
         setError(null);
     };
 
-    const inputClasses = "w-full bg-slate-950/50 border border-slate-800/60 rounded-xl px-4 py-3 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-all placeholder:text-slate-600 shadow-inner";
+    // Semantic Input Classes
+    const inputClasses = "w-full bg-muted/50 border border-border rounded-xl px-4 py-3 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-muted-foreground/50 shadow-inner";
 
     return (
         <motion.div
             layout
-            className="relative p-6 border border-white/5 bg-[#0a0c14]/80 backdrop-blur-2xl rounded-3xl overflow-hidden shadow-2xl"
+            className="relative p-6 border border-border bg-card/80 backdrop-blur-2xl rounded-[2.5rem] overflow-hidden shadow-2xl dark:shadow-none transition-all duration-500"
         >
-            <div className="flex items-center gap-3 mb-8">
-                <div className="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.1)]">
-                    <PlusCircle className="w-5 h-5 text-blue-400" />
+            <div className="flex items-center gap-4 mb-8">
+                <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20 shadow-sm">
+                    <PlusCircle className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                    <h2 className="text-xl font-black text-white tracking-tighter uppercase italic">Bio-Intake</h2>
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.3em]">Operational Protocol v2.5</p>
+                    <h2 className="text-2xl font-black text-foreground tracking-tighter uppercase italic leading-none">Bio-Intake</h2>
+                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] mt-1">Operational Protocol v2.5</p>
                 </div>
             </div>
 
@@ -114,13 +112,13 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
 
                 <div className="grid grid-cols-12 gap-4">
                     <div className="col-span-12 space-y-2">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-2">
-                            <User className="w-3 h-3" /> Identity
+                        <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2">
+                            <User className="w-3 h-3 text-primary" /> Patient Identity
                         </label>
                         <input
                             required
                             className={inputClasses}
-                            placeholder="Patient Name"
+                            placeholder="Full Legal Name"
                             value={formData.patient_name}
                             onChange={e => setFormData({ ...formData, patient_name: e.target.value })}
                         />
@@ -142,27 +140,27 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
                             value={formData.gender}
                             onChange={e => setFormData({ ...formData, gender: e.target.value })}
                         >
-                            <option className="bg-slate-900">Male</option>
-                            <option className="bg-slate-900">Female</option>
-                            <option className="bg-slate-900">Other</option>
+                            <option className="bg-card text-foreground">Male</option>
+                            <option className="bg-card text-foreground">Female</option>
+                            <option className="bg-card text-foreground">Other</option>
                         </select>
                     </div>
                 </div>
 
-                <div className="space-y-4 bg-white/5 p-4 rounded-2xl border border-white/5">
-                    <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-2">
-                            <Info className="w-3 h-3" /> Clinical Context
+                <div className="space-y-4 bg-muted/40 p-5 rounded-[2rem] border border-border">
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2">
+                            <Info className="w-3 h-3 text-primary" /> Clinical Context
                         </label>
                         <input
                             className={inputClasses}
-                            placeholder="Primary Complaint (e.g., Sudden Chest Pain)"
+                            placeholder="Primary Complaint"
                             value={formData.complaint}
                             onChange={e => setFormData({ ...formData, complaint: e.target.value })}
                         />
                         <textarea
-                            className={`${inputClasses} min-h-[60px] resize-none mt-2`}
-                            placeholder="Supporting Symptoms (CSV)"
+                            className={`${inputClasses} min-h-[80px] resize-none`}
+                            placeholder="Supporting Symptoms (Comma separated)"
                             value={formData.symptoms}
                             onChange={e => setFormData({ ...formData, symptoms: e.target.value })}
                         />
@@ -172,44 +170,37 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
                         type="button"
                         onClick={handleAIAnalyze}
                         disabled={isAnalyzing}
-                        className="w-full py-2.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-sm"
                     >
                         {isAnalyzing ? (
                             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}>
-                                <Sparkles className="w-3 h-3" />
+                                <Sparkles className="w-4 h-4" />
                             </motion.div>
-                        ) : <Sparkles className="w-3 h-3" />}
+                        ) : <Sparkles className="w-4 h-4" />}
                         {isAnalyzing ? "Processing..." : "AI Analyze Core"}
                     </button>
-
-                    {error && (
-                        <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[10px] text-rose-500 font-bold flex items-center gap-2">
-                            <AlertTriangle className="w-3 h-3" />
-                            {error}
-                        </div>
-                    )}
 
                     <AnimatePresence>
                         {formData.icd_code && (
                             <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                className="space-y-3 pt-2"
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="space-y-3 p-4 bg-card rounded-2xl border border-border shadow-inner"
                             >
                                 <div className="flex justify-between items-center text-[10px]">
-                                    <span className="font-black text-emerald-500 px-2 py-0.5 bg-emerald-500/10 rounded border border-emerald-500/20">
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 px-2 py-1 bg-emerald-500/10 rounded-lg border border-emerald-500/20 uppercase">
                                         ICD: {formData.icd_code}
                                     </span>
-                                    <span className={`font-black px-2 py-0.5 rounded border ${formData.triage_urgency === 'CRITICAL' || formData.triage_urgency === 'EMERGENCY' ? 'text-rose-500 bg-rose-500/10 border-rose-500/20' :
-                                            formData.triage_urgency === 'URGENT' ? 'text-amber-500 bg-amber-500/10 border-amber-500/20' :
-                                                'text-emerald-500 bg-emerald-500/10 border-emerald-500/20'
-                                        }`}>
+                                    <span className={`font-black px-2 py-1 rounded-lg border uppercase ${
+                                        formData.triage_urgency === 'CRITICAL' || formData.triage_urgency === 'EMERGENCY' 
+                                        ? 'text-rose-600 bg-rose-500/10 border-rose-500/20' 
+                                        : 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20'
+                                    }`}>
                                         {formData.triage_urgency}
                                     </span>
                                 </div>
-                                <p className="text-[10px] text-white font-medium italic">{formData.icd_description}</p>
-                                <div className="p-2 bg-black/40 rounded-lg border border-white/5 text-[9px] text-slate-400 leading-relaxed font-mono">
-                                    <AlertTriangle className="w-2.5 h-2.5 inline mr-1 mb-0.5 text-amber-500" />
+                                <p className="text-[11px] text-foreground font-bold italic opacity-80">{formData.icd_description}</p>
+                                <div className="p-3 bg-muted/60 rounded-xl text-[10px] text-muted-foreground leading-relaxed font-mono">
                                     {formData.icd_rationale}
                                 </div>
                             </motion.div>
@@ -223,13 +214,13 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
                         { label: "BP", icon: Droplets, color: "text-blue-500", key: "bp" },
                         { label: "SpO2", icon: Thermometer, color: "text-emerald-500", key: "spo2" }
                     ].map(vital => (
-                        <div key={vital.label} className="bg-black/20 p-3 rounded-2xl border border-white/5">
-                            <span className={`text-[8px] font-black uppercase tracking-widest ${vital.color} flex items-center gap-1 mb-2`}>
-                                <vital.icon className="w-2.5 h-2.5" /> {vital.label}
+                        <div key={vital.label} className="bg-muted/50 p-4 rounded-2xl border border-border flex flex-col items-center">
+                            <span className={`text-[9px] font-black uppercase tracking-widest ${vital.color} flex items-center gap-1.5 mb-2`}>
+                                <vital.icon className="w-3 h-3" /> {vital.label}
                             </span>
                             <input
                                 placeholder="--"
-                                className="w-full bg-transparent text-slate-100 text-sm text-center focus:outline-none"
+                                className="w-full bg-transparent text-foreground text-base font-black text-center focus:outline-none"
                                 value={(formData as any)[vital.key]}
                                 onChange={e => setFormData({ ...formData, [vital.key]: e.target.value })}
                             />
@@ -238,18 +229,18 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
                 </div>
 
                 <div className="space-y-3">
-                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-2">
-                        <Activity className="w-3 h-3 text-blue-500" /> ESI Triage
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2">
+                        <Activity className="w-3 h-3 text-primary" /> ESI Triage Selector
                     </label>
-                    <div className="grid grid-cols-5 p-1 bg-black/40 rounded-2xl border border-white/5 gap-1.5">
+                    <div className="grid grid-cols-5 p-2 bg-muted/50 rounded-2xl border border-border gap-2">
                         {["1", "2", "3", "4", "5"].map(level => (
                             <button
                                 key={level}
                                 type="button"
                                 onClick={() => setFormData({ ...formData, base_acuity: level })}
-                                className={`py-2 text-[10px] font-black rounded-xl transition-all ${formData.base_acuity === level
-                                    ? "bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
-                                    : "text-slate-600 hover:text-slate-300 hover:bg-white/5"
+                                className={`py-3 text-[11px] font-black rounded-xl transition-all ${formData.base_acuity === level
+                                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20 scale-105"
+                                    : "text-muted-foreground hover:bg-card hover:text-foreground"
                                     }`}
                             >
                                 {level}
@@ -259,10 +250,10 @@ export default function QueueIncoming({ onCheckIn }: { onCheckIn: (data: any) =>
                 </div>
 
                 <motion.button
-                    whileHover={{ scale: 1.02, backgroundColor: "#2563eb" }}
+                    whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     type="submit"
-                    className="w-full py-4 bg-blue-700 text-white font-black text-[10px] uppercase tracking-[0.3em] rounded-2xl shadow-2xl shadow-blue-900/40 border border-blue-400/20"
+                    className="w-full py-5 bg-primary text-primary-foreground font-black text-[11px] uppercase tracking-[0.4em] rounded-[2rem] shadow-xl shadow-primary/20 border border-primary/20"
                 >
                     Commit Check-In
                 </motion.button>

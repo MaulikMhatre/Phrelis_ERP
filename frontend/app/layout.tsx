@@ -5,11 +5,13 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { usePathname } from "next/navigation";
 
+// Theme Integration
+import { ThemeProvider } from "next-themes"; 
 
 import Navbar from "@/components/Navbar";
 import GlobalAlertBanner from "@/components/GlobalAlertBanner";
 import { ToastProvider } from "@/context/ToastContext";
-import { AuthProvider } from "@/context/AuthContext";  // [RBAC] Import AuthProvider
+import { AuthProvider } from "@/context/AuthContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,31 +29,36 @@ export default function RootLayout({
     const token = localStorage.getItem("token");
     setIsAuthenticated(!!token);
     setIsLoading(false);
-  }, [pathname]); // Re-check on route change
+  }, [pathname]); 
 
-  // Determine if we are on the login page
   const isLoginPage = pathname === "/login";
 
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.className} bg-[#020617] min-h-screen flex flex-col transition-colors duration-500`}
+        className={`${inter.className} bg-background min-h-screen flex flex-col transition-colors duration-500`}
         suppressHydrationWarning
       >
-        <AuthProvider>  {/* [RBAC] Wrap with AuthProvider */}
-          <ToastProvider>
-            {!isLoginPage && isAuthenticated && (
-              <>
-                <GlobalAlertBanner />
-                <Navbar />
-              </>
-            )}
+        <ThemeProvider 
+          attribute="class" 
+          defaultTheme="dark" 
+          enableSystem={false}
+        >
+          <AuthProvider>
+            <ToastProvider>
+              {!isLoginPage && isAuthenticated && (
+                <>
+                  <GlobalAlertBanner />
+                  <Navbar />
+                </>
+              )}
 
-            <main className="flex-grow w-full">
-              {children}
-            </main>
-          </ToastProvider>
-        </AuthProvider>
+              <main className="flex-grow w-full">
+                {children}
+              </main>
+            </ToastProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

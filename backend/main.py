@@ -4,8 +4,12 @@ import math
 import uuid
 import os
 from dotenv import load_dotenv
-
-load_dotenv() # Load environment variables from .env file
+import pickle
+import pandas as pd
+import httpx
+import asyncio
+import numpy as np
+from pydantic import BaseModel
 
 from datetime import timedelta
 from datetime import datetime
@@ -33,6 +37,15 @@ from fastapi import Request
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
+
+
+try:
+    with open("inflow_model.pkl", "rb") as f:
+        ai_brain = pickle.load(f)
+    print("🧠 AI Inflow Model Loaded Successfully")
+except Exception as e:
+    ai_brain = None
+    print(f"⚠️ AI Model failed to load: {e}")
 
 load_dotenv()
 models.Base.metadata.create_all(bind=engine)
@@ -139,6 +152,105 @@ class ICDClassification(BaseModel):
     clinical_rationale: str
     triage_urgency: str # CRITICAL | URGENT | STABLE
 
+
+COMMON_ER_MAP = {
+    # --- CARDIOVASCULAR & RESPIRATORY (High Acuity) ---
+    "chest pain": {
+        "code": "R07.9", 
+        "desc": "Chest pain, unspecified", 
+        "urgency": "EMERGENCY",
+        "rationale": "High-risk indicator for Acute Coronary Syndrome (ACS). Protocol requires immediate ECG to rule out myocardial infarction."
+    },
+    "shortness of breath": {
+        "code": "R06.02", 
+        "desc": "Shortness of breath", 
+        "urgency": "EMERGENCY",
+        "rationale": "Potential respiratory failure or Pulmonary Embolism. Requires immediate SpO2 and airway assessment."
+    },
+    "palpitations": {
+        "code": "R00.2", 
+        "desc": "Palpitations", 
+        "urgency": "URGENT",
+        "rationale": "Potential arrhythmia (Atrial Fibrillation/SVT). Requires ECG to assess hemodynamic stability."
+    },
+
+    # --- NEUROLOGICAL (Stroke/Seizure) ---
+    "weakness": {
+        "code": "R53.1", 
+        "desc": "Weakness, unspecified", 
+        "urgency": "EMERGENCY",
+        "rationale": "If focal or sudden, highly suggestive of Stroke (CVA). 'Time is Brain' protocol applies; immediate CT Head required."
+    },
+    "slurred speech": {
+        "code": "R47.81", 
+        "desc": "Slurred speech", 
+        "urgency": "EMERGENCY",
+        "rationale": "Acute neurological deficit. Must rule out Ischemic/Hemorrhagic Stroke via immediate neurology consult."
+    },
+    "seizure": {
+        "code": "G40.909", 
+        "desc": "Seizure, unspecified", 
+        "urgency": "EMERGENCY",
+        "rationale": "Risk of status epilepticus and airway compromise. Requires immediate benzodiazepine protocol and EEG follow-up."
+    },
+
+    # --- TRAUMA & ACCIDENTS ---
+    "fall": {
+        "code": "W19.XXXA", 
+        "desc": "Unspecified fall, initial encounter", 
+        "urgency": "URGENT",
+        "rationale": "Risk of occult fractures or internal hemorrhage, especially in geriatric patients on anticoagulants."
+    },
+    "bleeding": {
+        "code": "R58", 
+        "desc": "Hemorrhage, not elsewhere classified", 
+        "urgency": "EMERGENCY",
+        "rationale": "Risk of hypovolemic shock. Requires immediate pressure, fluid resuscitation, and CBC/Cross-match."
+    },
+    "head injury": {
+        "code": "S09.90XA", 
+        "desc": "Unspecified injury of head", 
+        "urgency": "EMERGENCY",
+        "rationale": "Risk of intracranial pressure (ICP) elevation or hematoma. Monitor GCS scores every 15 minutes."
+    },
+
+    # --- GASTRO & METABOLIC ---
+    "vomiting": {
+        "code": "R11.10", 
+        "desc": "Vomiting, unspecified", 
+        "urgency": "URGENT",
+        "rationale": "Risk of dehydration and electrolyte imbalance. Assess for metabolic alkalosis and fluid responsiveness."
+    },
+    "dizziness": {
+        "code": "R42", 
+        "desc": "Dizziness and giddiness", 
+        "urgency": "STABLE",
+        "rationale": "Broad differential from vertigo to orthostatic hypotension. Check BP (lying/standing) and HINTS exam."
+    },
+    "allergic reaction": {
+        "code": "T78.40XA", 
+        "desc": "Allergy, unspecified", 
+        "urgency": "EMERGENCY",
+        "rationale": "Risk of Anaphylaxis. Monitor for stridor, wheezing, or hypotension. Epinephrine should be on standby."
+    },
+
+    # --- PEDIATRIC SPECIALS ---
+    "pediatric fever": {
+        "code": "R50.9", 
+        "desc": "Fever, unspecified (Pediatric)", 
+        "urgency": "URGENT",
+        "rationale": "In infants <90 days, fever is an automatic sepsis workup. Risk of meningitis must be ruled out."
+    },
+    "dehydration": {
+        "code": "E86.0", 
+        "desc": "Dehydration", 
+        "urgency": "URGENT",
+        "rationale": "Common in pediatric gastro cases. Check capillary refill and mucous membranes for fluid deficit."
+    }
+}
+
+
+
 class MedicalAgent:
     def __init__(self):
         # 2. GET API KEY EXPLICITLY
@@ -222,47 +334,78 @@ class MedicalAgent:
                 recommended_actions=["Manual Triage Required"]
             )
 
+    def _get_local_fallback(self, complaint: str) -> dict:
+        complaint_low = complaint.lower()
+    
+    # 1. Create a priority-sorted list of keys based on urgency
+    # This ensures "chest pain" is caught before "dizziness" if both are present
+        priority_order = ["EMERGENCY", "URGENT", "STABLE"]
+    
+        for level in priority_order:
+            for key, data in COMMON_ER_MAP.items():
+                if data["urgency"] == level and key in complaint_low:
+                    return data
+                
+    # 2. Ultimate generic fallback
+        return {
+        "code": "R69", 
+        "desc": "Illness, unspecified", 
+        "urgency": "STABLE", 
+        "rationale": "Non-specific complaint. Monitoring vitals for escalation signs."
+        }
     async def classify_icd(self, complaint: str, symptoms: List[str]) -> ICDClassification:
+        # 1. Immediate exit if agent is inactive
         if not self.active:
+            fallback = self._get_local_fallback(complaint)
             return ICDClassification(
-                icd_code="R69",
-                official_description="Illness, unspecified",
-                chapter_prefix="R",
-                confidence_score=0.5,
-                clinical_rationale="AI offline.",
-                triage_urgency="STABLE"
+                icd_code=fallback["code"],
+                official_description=f"{fallback['desc']}",
+                chapter_prefix=fallback["code"][0],
+                confidence_score=0.1,
+                clinical_rationale=fallback["rationale"],
+                triage_urgency=fallback["urgency"]
             )
 
         system_prompt = (
             "You are the Phrelis OS Clinical Intelligence Core, a high-precision medical classification engine. "
-            "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\\n\\n"
-            "OPERATIONAL LOGIC:\\n"
-            "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\\n"
-            "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\\n"
-            "3. Specificity Rule: If data is insufficient for a 7-character code, provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\\n\\n"
+            "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\n\n"
+            "OPERATIONAL LOGIC:\n"
+            "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\n"
+            "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\n"
+            "3. Specificity Rule: Provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\n\n"
             "Return a JSON object following the ICDClassification schema accurately."
         )
         
         user_input = f"Primary Complaint: {complaint}. Supporting Symptoms: {symptoms}."
         
         try:
-            # Create a specialized structured LLM for ICD classification
+            # Create the structured output generator
             structured_icd = self.llm.with_structured_output(ICDClassification)
-            return await structured_icd.ainvoke([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input}
-            ])
-        except Exception as e:
-            print(f"ICD Classification Error: {e}")
-            return ICDClassification(
-                icd_code="R68.89",
-                official_description="Other specified general symptoms and signs",
-                chapter_prefix="R",
-                confidence_score=0.0,
-                clinical_rationale=f"Fallback due to processing error: {str(e)[:50]}",
-                triage_urgency="STABLE"
+            
+            # 2. THE RACE: 10 SECOND TIMEOUT
+            # If Gemini takes more than 10s, it raises asyncio.TimeoutError
+            return await asyncio.wait_for(
+                structured_icd.ainvoke([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ]),
+                timeout=10
             )
 
+        except (asyncio.TimeoutError, Exception) as e:
+            # 3. FALLBACK TRIGGER
+            error_type = "TIMEOUT" if isinstance(e, asyncio.TimeoutError) else "PROCESSING ERROR"
+            print(f"[{error_type}]: Switched to Local Fallback for {complaint}")
+            
+            fallback = self._get_local_fallback(complaint)
+            return ICDClassification(
+                icd_code=fallback["code"],
+                official_description=fallback["desc"],
+                chapter_prefix=fallback["code"][0],
+                confidence_score=0.0,
+                clinical_rationale=fallback["rationale"],
+                triage_urgency=fallback["urgency"]
+            )
 # 4. INITIALIZE THE AGENT AFTER LOAD_DOTENV()
 ai_agent = MedicalAgent()
 
@@ -1991,63 +2134,216 @@ def seed_db():
         db.commit()
     
 
-class WeatherService:
-    @staticmethod
-    async def get_weather_coefficient() -> dict:
-        hour = datetime.now().hour
-        temp, humidity, condition = 20, 50, "Clear"
-        if hour < 8: temp, condition = -2, "Snow"
-        elif 12 < hour < 16: temp, humidity = 35, 95
-        multiplier, reason = 1.0, "Normal Conditions"
-        if temp < 0: multiplier, reason = 1.15, f"Cold Snap ({temp}°C)"
+# class WeatherService:
+#     @staticmethod
+#     async def get_weather_coefficient() -> dict:
+#         hour = datetime.now().hour
+#         temp, humidity, condition = 20, 50, "Clear"
+#         if hour < 8: temp, condition = -2, "Snow"
+#         elif 12 < hour < 16: temp, humidity = 35, 95
+#         multiplier, reason = 1.0, "Normal Conditions"
+#         if temp < 0: multiplier, reason = 1.15, f"Cold Snap ({temp}°C)"
         
-        return {
-            "temp": temp, "humidity": humidity, "condition": condition,
-            "multiplier": multiplier, "reason": reason
-        }
+#         return {
+#             "temp": temp, "humidity": humidity, "condition": condition,
+#             "multiplier": multiplier, "reason": reason
+#         }
 
-@app.post("/api/predict-inflow")
-async def predict_inflow(db: Session = Depends(get_db)):
-    """
-    Deterministic Neural Engine Logic: 
-    Strict mathematical bimodal forecast.
-    """
-    weather = await WeatherService.get_weather_coefficient()
-    w_mult = weather["multiplier"] 
+# @app.post("/api/predict-inflow")
+# async def predict_inflow(db: Session = Depends(get_db)):
+#     """
+#     Deterministic Neural Engine Logic: 
+#     Strict mathematical bimodal forecast.
+#     """
+#     weather = await WeatherService.get_weather_coefficient()
+#     w_mult = weather["multiplier"] 
     
-    occupied_count = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).count()
-    # Saturation factor based on real-time bed data
-    saturation_factor = 1 + (occupied_count / 60) * 0.25 
+#     occupied_count = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).count()
+#     # Saturation factor based on real-time bed data
+#     saturation_factor = 1 + (occupied_count / 60) * 0.25 
 
-    current_hour = datetime.now().hour
-    forecast = []
-    total_val = 0
+#     current_hour = datetime.now().hour
+#     forecast = []
+#     total_val = 0
     
-    # Generate 12-hour deterministic forecast
-    for i in range(1, 13):
-        h = (current_hour + i) % 24
+#     # Generate 12-hour deterministic forecast
+#     for i in range(1, 13):
+#         h = (current_hour + i) % 24
         
 
-        morning_peak = 18 * math.exp(-((h - 10)**2) / 6) 
-        evening_peak = 14 * math.exp(-((h - 20)**2) / 5)
+#         morning_peak = 18 * math.exp(-((h - 10)**2) / 6) 
+#         evening_peak = 14 * math.exp(-((h - 20)**2) / 5)
         
  
-        base_inflow = 4 + morning_peak + evening_peak
+#         base_inflow = 4 + morning_peak + evening_peak
         
-        predicted_count = int(base_inflow * w_mult * saturation_factor)
-        forecast.append({"hour": f"{h}:00", "inflow": predicted_count})
+#         predicted_count = int(base_inflow * w_mult * saturation_factor)
+#         forecast.append({"hour": f"{h}:00", "inflow": predicted_count})
+#         total_val += predicted_count
+    
+#     peak_entry = max(forecast, key=lambda x: x["inflow"])
+#     return {
+#         "forecast": forecast,
+#         "total_predicted_inflow": total_val,
+#         "risk_level": "HIGH SURGE RISK" if total_val > 50 else "STABLE",
+#         "weather_impact": weather,
+#         "confidence_score": 95, 
+#         "factors": {
+#         "environmental": f"{round(w_mult, 2)}x",
+#         "systemic_saturation": f"{round(saturation_factor, 2)}x"
+#         }
+#     }
+
+
+
+class InflowRequest(BaseModel):
+    weather_event_multiplier: bool = False
+    sim_intensity: float = 1.5  # Sync with frontend default
+
+class WeatherService:
+    @staticmethod
+    def calculate_heat_index(temp: float, humidity: float) -> float:
+        e = (humidity / 100) * 6.105 * math.exp((17.27 * temp) / (237.7 + temp))
+        return temp + 0.33 * e - 4.0
+
+    @staticmethod
+    def get_aqi_multiplier(aqi_value: float) -> tuple:
+        """
+        Calculates impact based on US EPA AQI scale.
+        Impacts respiratory (asthma/COPD) and cardiac admissions.
+        """
+        if aqi_value > 300: # Hazardous
+            return 1.45, f"Hazardous AQI ({round(aqi_value)})"
+        elif aqi_value > 200: # Very Unhealthy
+            return 1.30, f"Very Unhealthy Air Quality"
+        elif aqi_value > 150: # Unhealthy
+            return 1.20, f"Unhealthy AQI Spike"
+        elif aqi_value > 100: # Unhealthy for Sensitive Groups
+            return 1.10, f"Sensitive Groups AQI Alert"
+        return 1.0, "Good/Moderate Air"
+
+    @staticmethod
+    def get_multiplier_logic(feels_like: float, rain_mm: float, humidity: float, aqi: float = 0) -> tuple:
+        beta, threshold = 0.04, 35.0
+        
+        # Calculate individual multipliers
+        aqi_mult, aqi_reason = WeatherService.get_aqi_multiplier(aqi)
+        
+        # Primary Weather Logic
+        if feels_like > threshold:
+            w_mult = math.exp(beta * (feels_like - threshold))
+            w_reason = f"Exp. Heat Stress ({round(feels_like)}°C)"
+        elif rain_mm > 0.1:
+            if rain_mm >= 10: 
+                w_mult, w_reason = 1.60, "Severe Monsoon (Flood/Trauma)"
+            elif 2 < rain_mm < 10: 
+                w_mult, w_reason = 1.35, "Standard Monsoon Surge"
+            else: 
+                w_mult, w_reason = 1.15, "Light Rain / Humidity"
+        elif humidity > 85:
+            w_mult, w_reason = 1.10, "High Humidity Alert"
+        else:
+            w_mult, w_reason = 1.0, "Optimal Conditions"
+            
+        # Combine Multipliers (Compounding Impact)
+        # We take the higher impact or a weighted average. Here we take the max to identify the primary driver.
+        if w_mult > 1.0 and aqi_mult > 1.0:
+        # Formula: Take the biggest impact + 50% of the smaller impact's extra weight
+        # This reflects how Heat + Pollution is deadlier than just one alone.
+            final_mult = max(w_mult, aqi_mult) + (min(w_mult, aqi_mult) - 1.0) * 0.5
+            final_reason = f"{w_reason} + {aqi_reason}"
+        else:
+        # If only one factor is active, or conditions are optimal, just take the max
+            final_mult = max(w_mult, aqi_mult)
+            final_reason = aqi_reason if aqi_mult > w_mult else w_reason
+            
+        return round(final_mult, 2), final_reason
+
+    @staticmethod
+    async def get_hourly_environmental_data() -> dict:
+        lat, lon = 19.0760, 72.8777 
+        # API 1: Standard Weather
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,precipitation&forecast_days=2"
+        # API 2: Air Quality (US AQI Index)
+        aqi_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=us_aqi&forecast_days=2"
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                w_res = await client.get(weather_url)
+                a_res = await client.get(aqi_url)
+                
+                data = w_res.json()["hourly"]
+                data["us_aqi"] = a_res.json()["hourly"]["us_aqi"]
+                return data
+        except Exception as e:
+            print(f"Environmental API Error: {e}")
+            return None
+
+@app.post("/api/predict-inflow")
+async def predict_inflow(req: InflowRequest, db: Session = Depends(get_db)):
+    hourly_data = await WeatherService.get_hourly_environmental_data()
+    
+    # Systemic Saturation Logic
+    occupied_count = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).count()
+    saturation_factor = 1 + (occupied_count / 60) * 0.25 
+
+    now = datetime.now()
+    forecast, total_val, current_snap = [], 0, {}
+    
+    is_sim = req.weather_event_multiplier
+    sim_intensity = req.sim_intensity 
+    start_hour = now.hour
+
+    for i in range(0, 12):
+        future_time = now + timedelta(hours=i)
+        idx = start_hour + i
+        
+        if hourly_data and idx < len(hourly_data["temperature_2m"]):
+            temp = hourly_data["temperature_2m"][idx]
+            hum = hourly_data["relative_humidity_2m"][idx]
+            rain = hourly_data["precipitation"][idx]
+            aqi = hourly_data["us_aqi"][idx] # New AQI field
+            fl = WeatherService.calculate_heat_index(temp, hum)
+            w_mult, w_reason = WeatherService.get_multiplier_logic(fl, rain, hum, aqi)
+        else:
+            temp, hum, rain, aqi, fl, w_mult, w_reason = 27, 50, 0, 50, 27, 1.0, "Telemetry Offline"
+
+        # Apply Sim vs Real
+        final_mult = sim_intensity if is_sim else w_mult
+        final_reason = f"SIMULATION: {sim_intensity}x Spike" if is_sim else w_reason
+
+        if i == 0:
+            current_snap = {
+                "temp": temp, "humidity": hum, "rain_mm": rain, "aqi": aqi,
+                "feels_like": round(fl, 1), "multiplier": final_mult, "reason": final_reason
+            }
+
+        # XGBoost prediction core
+        base_prediction = ai_brain.predict(pd.DataFrame([{
+            "hour": future_time.hour, 
+            "day_of_week": future_time.weekday(), 
+            "month": future_time.month
+        }]))[0]
+        
+        predicted_count = int(base_prediction * final_mult * saturation_factor)
+        
+        forecast.append({
+            "hour": future_time.strftime("%H:00"), 
+            "inflow": max(0, predicted_count),
+            "temp": temp, "rain": rain, "aqi": aqi,
+            "multiplier": final_mult, "reason": final_reason
+        })
         total_val += predicted_count
     
-    peak_entry = max(forecast, key=lambda x: x["inflow"])
     return {
+        "engine": "XGBoost + Env-Multivariate",
         "forecast": forecast,
         "total_predicted_inflow": total_val,
-        "risk_level": "HIGH SURGE RISK" if total_val > 50 else "STABLE",
-        "weather_impact": weather,
-        "confidence_score": 95, 
+        "risk_level": "CRITICAL" if total_val > 100 else "HIGH SURGE" if total_val > 80 else "STABLE",
+        "weather_impact": current_snap,
         "factors": {
-        "environmental": f"{round(w_mult, 2)}x",
-        "systemic_saturation": f"{round(saturation_factor, 2)}x"
+            "environmental": f"Simulated ({sim_intensity}x)" if is_sim else "AQI + Weather Tracking",
+            "systemic_saturation": f"{round(saturation_factor, 2)}x"
         }
     }
 

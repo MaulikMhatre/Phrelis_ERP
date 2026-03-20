@@ -1,6 +1,12 @@
+
+
+
 @import "tailwindcss";
 
+/* --- THEME TOKENS --- */
+
 :root {
+  /* DEFAULT: DARK MODE (Phrelis Original) */
   --background: #000000;
   --foreground: #ffffff;
   --sidebar-bg: #050505;
@@ -12,6 +18,24 @@
   --accent: #334155;
   --accent-foreground: #ffffff;
   --indigo-glow: rgba(99, 102, 241, 0.15);
+  --border: #1e293b; /* New token for dynamic borders */
+}
+
+.light {
+  /* LIGHT MODE OVERRIDES */
+  --background: #f8fafc; /* Light Slate */
+  --foreground: #0f172a; /* Dark Slate */
+  --sidebar-bg: #f1f5f9;
+  --card-bg: #ffffff;
+  --primary: #4f46e5; /* Slightly deeper indigo for contrast */
+  --primary-foreground: #ffffff;
+  --secondary: #e2e8f0;
+  --secondary-foreground: #0f172a;
+  --accent: #cbd5e1;
+  --accent-foreground: #0f172a;
+  --indigo-glow: rgba(99, 102, 241, 0.05);
+  --border: #e2e8f0;
+  --elevation: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
 }
 
 @theme inline {
@@ -24,12 +48,14 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+/* --- BASE STYLES --- */
+
 body {
-  /* Ensuring the background is always deep obsidian */
   background-color: var(--background) !important;
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui;
@@ -37,9 +63,10 @@ body {
   padding: 0;
   min-height: 100vh;
   overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease; /* Smooth toggle transition */
 }
 
-/* Tactical Scrollbar Design */
+/* Tactical Scrollbar Design - Now Theme Aware */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
@@ -49,12 +76,12 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: var(--secondary); /* Switched to token */
   border-radius: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: var(--accent); /* Switched to token */
 }
 
 /* Proper Margin Helper for the Dashboard Gutter */
@@ -63,7 +90,8 @@ body {
   padding-right: 3rem;
 }
 
-/* Print Optimization */
+/* --- PRINT OPTIMIZATION --- */
+
 @media print {
   @page {
     size: A4;
@@ -75,12 +103,10 @@ body {
     color: black !important;
   }
 
-  /* Hide everything by default */
   body * {
     visibility: hidden !important;
   }
 
-  /* Show only the printable area */
   .printable-area,
   .printable-area * {
     visibility: visible !important;
@@ -99,7 +125,6 @@ body {
     border-radius: 0 !important;
   }
 
-  /* Specific Table Styling for Print */
   .printable-area table {
     border-collapse: collapse !important;
   }
@@ -109,7 +134,6 @@ body {
     border: 1px solid #e2e8f0 !important;
   }
 
-  /* Hide print buttons during print */
   .no-print {
     display: none !important;
   }
