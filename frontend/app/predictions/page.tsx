@@ -45,26 +45,50 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-card border border-border p-5 rounded-2xl backdrop-blur-xl shadow-2xl ring-1 ring-border/50 min-w-[240px]">
+      <div className="bg-card/95 border border-border p-5 rounded-2xl backdrop-blur-xl shadow-2xl ring-1 ring-border/50 min-w-[260px]">
         <div className="flex justify-between items-start mb-4">
           <div>
             <p className="text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">{label} Window</p>
             <p className="text-foreground font-black text-3xl tracking-tighter">
-                {data.inflow} <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Units</span>
+              {data.inflow} <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Units</span>
             </p>
           </div>
-          <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 font-black text-[10px]">
+          <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-black text-[10px] ${
+  data.multiplier >= 1.5 
+    ? 'bg-rose-500/10 border border-rose-500/20 text-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.1)]' 
+    : data.multiplier > 1 
+      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500' 
+      : 'bg-emerald-500/5 border border-emerald-500/10 text-emerald-500'
+}`} > {data.multiplier >= 1.5 && <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse mr-1" />}
             <ArrowUpRight className="w-3 h-3" />
             {data.multiplier}x
           </div>
         </div>
-        
-        <div className="bg-muted/50 p-3 rounded-xl border border-border">
-          <p className="text-[9px] text-primary uppercase font-black tracking-widest mb-2 flex items-center gap-2">
-            <Zap className="w-2.5 h-2.5 fill-current" /> Logic Path
+
+        {/* --- RESTORED WEATHER METRICS --- */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="flex flex-col bg-muted/30 p-2 rounded-lg border border-border/50">
+            <span className="text-[8px] text-muted-foreground uppercase font-black">Temp</span>
+            <span className="text-[11px] text-foreground font-bold">{data.temp}°C</span>
+          </div>
+          <div className="flex flex-col bg-muted/30 p-2 rounded-lg border border-border/50">
+            <span className="text-[8px] text-muted-foreground uppercase font-black">Rain</span>
+            <span className="text-[11px] text-foreground font-bold">{data.rain}mm</span>
+          </div>
+          <div className="flex flex-col bg-muted/30 p-2 rounded-lg border border-border/50">
+            <span className="text-[8px] text-muted-foreground uppercase font-black">AQI</span>
+            <span className={`text-[11px] font-black ${data.aqi > 100 ? 'text-orange-500' : 'text-emerald-500'}`}>
+              {data.aqi}
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-primary/5 p-3 rounded-xl border border-primary/10">
+          <p className="text-[9px] text-primary uppercase font-black tracking-widest mb-1.5 flex items-center gap-2">
+            <Zap className="w-2.5 h-2.5 fill-current" /> Neural Logic
           </p>
-          <p className="text-[11px] text-foreground/70 leading-snug italic font-medium">
-            "{data.reason}"
+          <p className="text-[10px] text-foreground/70 leading-snug italic font-medium">
+            {data.reason}
           </p>
         </div>
       </div>
@@ -240,33 +264,50 @@ export default function AnalyticsPage() {
                   <div className="bg-card p-8 rounded-[2.5rem] border border-border shadow-sm">
                     <div className="flex items-center gap-3 mb-4 text-orange-500 font-black uppercase text-[10px]"><AlertTriangle className="w-5 h-5" /> Global Scalar</div>
                     <p className="text-sm text-muted-foreground italic leading-relaxed font-bold">
-                      Saturation multiplier: <span className="text-orange-600 dark:text-orange-400 font-black">{data.factors.systemic_saturation}</span> for turnover metrics.
+                      Saturation multiplier: <span className={`font-black px-2 py-0.5 rounded-md transition-colors duration-300 ${
+  parseFloat(data.factors.systemic_saturation) >= 1.5
+    ? 'text-rose-500 bg-rose-500/10 border border-rose-500/20' 
+    : parseFloat(data.factors.systemic_saturation) >1
+      ? 'text-orange-400 bg-orange-400/10 border border-orange-400/20' 
+      : 'text-emerald-400 bg-emerald-400/10 border border-emerald-400/20'
+}`}>
+  {data.factors.systemic_saturation}
+</span> for turnover metrics.
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-6">
-                <div className="bg-primary p-10 rounded-[3.5rem] border border-primary/20 shadow-2xl text-primary-foreground">
-                  <p className="text-xs font-black opacity-60 uppercase tracking-widest mb-2">Total Load (12h)</p>
-                  <h3 className="text-9xl font-black tracking-tighter mb-10 leading-none">{data.total_predicted_inflow}</h3>
+                <div className="bg-inflow  p-8 rounded-[3.5rem] border border-primary/20 shadow-2xl text-primary-foreground">
+                
+                  <p className="text-xs text-foreground font-black opacity-60 uppercase tracking-widest mb-2">Total Load (12h)</p>
+                  <h3 className="text-9xl font-black text-foreground tracking-tighter mb-10 leading-none">{data.total_predicted_inflow}</h3>
                   <div className="space-y-6">
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase opacity-60"><span>Risk protocol</span><span className="px-3 py-1 rounded-full border border-white/20 bg-white/10">{data.risk_level}</span></div>
-                    <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${Math.min((data.total_predicted_inflow / 120) * 100, 100)}%` }} className={`h-full ${data.risk_level.includes('CRITICAL') ? 'bg-rose-500' : 'bg-emerald-400'}`} /></div>
+                    <div className="flex justify-between text-foreground  items-center text-[10px] font-black uppercase opacity-60"><span>Risk protocol</span><span className={`px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest ${
+  data.risk_level.includes('CRITICAL') 
+    ? 'border-rose-500/50 bg-rose-500/10 text-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.2)]' 
+    : data.risk_level.includes('HIGH') 
+      ? 'border-orange-500/50 bg-orange-500/10 text-orange-400' 
+      : 'border-emerald-400/50 bg-emerald-400/10 text-emerald-400'
+}`}>
+  {data.risk_level}
+</span></div>
+                    <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${Math.min((data.total_predicted_inflow / 120) * 100, 100)}%` }} className={`h-full ${data.risk_level.includes('CRITICAL') ? 'bg-rose-500' : data.risk_level.includes('HIGH') ? 'bg-orange-500' : 'bg-emerald-400'}`} /></div>
                   </div>
                 </div>
 
-                <div className="bg-card p-8 rounded-[3rem] border border-border shadow-xl transition-all">
-                  <h4 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mb-8 border-b border-border pb-6">Environmental metrics</h4>
+                <div className="bg-inflow p-8 rounded-[3rem] border border-border shadow-xl transition-all">
+                  <h4 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] mb-8 border-b border-foreground pb-6">Environmental metrics</h4>
                   <div className="space-y-8">
                     <div className="flex justify-between items-center group">
-                      <div className="space-y-1"><p className="text-4xl font-black text-foreground italic tracking-tighter">{data.weather_impact.multiplier}x</p><p className="text-[9px] text-muted-foreground uppercase font-black">Active Coefficient</p></div>
-                      <div className="h-14 w-14 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-center"><Zap className="w-6 h-6 text-primary" /></div>
+                      <div className="space-y-1"><p className="text-4xl font-black text-foreground italic tracking-tighter">{data.weather_impact.multiplier} x</p><p className="text-[9px] text-muted-foreground uppercase font-black">Active Coefficient</p></div>
+                      <div className="h-14 w-14 bg-primary/10 border border-foreground rounded-2xl flex items-center justify-center"><Zap className="w-6 h-6 text-primary" /></div>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
-                      <div className="p-4 bg-muted/50 rounded-2xl border border-border text-center shadow-sm"><p className="text-xl font-black text-foreground">{data.weather_impact.feels_like}°</p><p className="text-[8px] text-muted-foreground uppercase font-black">Feels</p></div>
-                      <div className="p-4 bg-muted/50 rounded-2xl border border-border text-center shadow-sm"><p className="text-xl font-black text-foreground">{data.weather_impact.rain_mm}mm</p><p className="text-[8px] text-muted-foreground uppercase font-black">Rain</p></div>
-                      <div className="p-4 bg-muted/50 rounded-2xl border border-border text-center shadow-sm"><p className={`text-xl font-black ${data.weather_impact.aqi > 150 ? 'text-orange-500' : 'text-emerald-500'}`}>{data.weather_impact.aqi}</p><p className="text-[8px] text-muted-foreground uppercase font-black">AQI</p></div>
+                      <div className="p-4 bg-muted/50 rounded-2xl border border-foreground text-center shadow-sm"><p className="text-xl font-black text-foreground">{data.weather_impact.feels_like}°</p><p className="text-[8px] text-muted-foreground uppercase font-black">Feels</p></div>
+                      <div className="p-4 bg-muted/50 rounded-2xl border border-foreground text-center shadow-sm"><p className="text-xl font-black text-foreground">{data.weather_impact.rain_mm}mm</p><p className="text-[8px] text-muted-foreground uppercase font-black">Rain</p></div>
+                      <div className="p-4 bg-muted/50 rounded-2xl border border-foreground text-center shadow-sm"><p className={`text-xl font-black ${data.weather_impact.aqi > 300 ? 'text-red-500' : data.weather_impact.aqi > 150 ? 'text-orange-500' : 'text-emerald-500'}`}>{data.weather_impact.aqi}</p><p className="text-[8px] text-muted-foreground uppercase font-black">AQI</p></div>
                     </div>
                   </div>
                 </div>

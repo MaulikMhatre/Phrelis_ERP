@@ -64,10 +64,10 @@ const Navbar = () => {
               <Activity className="w-5 h-5 text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="text-lg font-black tracking-tighter uppercase italic leading-none text-foreground">
+              <span className="text-lg font-black tracking-tighter uppercase text-white italic leading-none text-foreground">
                 Phrelis <span className="text-indigo-600 dark:text-indigo-400">OS</span>
               </span>
-              <span className="text-[9px] font-bold text-muted-foreground tracking-[0.3em] uppercase mt-1">
+              <span className="text-[9px] text-indigo-600 font-bold text-muted-foreground tracking-[0.3em] uppercase mt-1">
                 Intelligence v2.4
               </span>
             </div>
