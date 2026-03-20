@@ -2,8 +2,15 @@
 
 :root {
   --background: #000000;
+  --foreground: #ffffff;
   --sidebar-bg: #050505;
   --card-bg: #0b0b0b;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #1e293b;
+  --secondary-foreground: #ffffff;
+  --accent: #334155;
+  --accent-foreground: #ffffff;
   --indigo-glow: rgba(99, 102, 241, 0.15);
 }
 
@@ -11,6 +18,12 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card-bg);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

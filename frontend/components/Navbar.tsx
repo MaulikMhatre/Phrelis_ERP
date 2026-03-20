@@ -1,63 +1,65 @@
 
 "use client";
+
+import React, { useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import Link from 'next/link';
-import { motion } from "framer-motion";
-import {
-  LayoutDashboard,
-  Stethoscope,
-  LineChart,
-  Activity,
-  Settings,
-  Clock,
-  Network,
-  Users,
-  ClipboardCheck,
-  LogOut,
-  DollarSign,
-  Shield
+import { 
+  Activity, Shield, LogOut, LayoutDashboard, Stethoscope, 
+  LineChart, Settings, Clock, Users, ClipboardCheck, DollarSign 
 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';  // [RBAC] Import useAuth
+import { useAuth } from '@/context/AuthContext';
+import { LimelightNav, NavItem } from "@/components/ui/limelight-nav";
+import SkyToggle from "@/components/ui/sky-toggle"; // Import the toggle
 
 const Navbar = () => {
   const pathname = usePathname();
   const router = useRouter();
-  const { role, logout } = useAuth();  // [RBAC] Get role and logout function
+  const { role, logout } = useAuth();
 
   const handleLogout = () => {
-    logout();  // [RBAC] Use AuthContext logout
+    logout();
   };
 
-  // [RBAC] Define all navigation items with role-based access control
   const allNavItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Admin'] },
     { name: 'Analytics', href: '/predictions', icon: LineChart, roles: ['Admin'] },
     { name: 'Revenue', href: '/admin/revenue', icon: DollarSign, roles: ['Admin'] },
-    { name: 'Audit-Log', href: '/admin/audit-logs', icon: DollarSign, roles: ['Admin'] },  // Admin only
+    { name: 'Audit-Log', href: '/admin/audit-logs', icon: DollarSign, roles: ['Admin'] },
     { name: 'OPD', href: '/queue', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Triage', href: '/triage', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
-    { name: 'Admin', href: '/admin', icon: Settings, roles: ['Admin', 'Doctor'] },  // Doctor can view
+    { name: 'Admin', href: '/admin', icon: Settings, roles: ['Admin', 'Doctor'] },
     { name: 'History', href: '/history', icon: Clock, roles: ['Admin'] },
     { name: 'Staff', href: '/staff', icon: Users, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck, roles: ['Admin', 'Doctor', 'Nurse'] }
   ];
 
-  // [RBAC] Filter navigation items based on user role
-  const navItems = allNavItems.filter(item =>
-    role && item.roles.includes(role)
-  );
+  const navItemsForLimelight: NavItem[] = useMemo(() => {
+    return allNavItems
+      .filter(item => role && item.roles.includes(role))
+      .map(item => ({
+        id: item.href,
+        label: item.name,
+        icon: <item.icon size={18} />, 
+        onClick: () => router.push(item.href)
+      }));
+  }, [role, router]);
+
+  const activeIndex = useMemo(() => {
+    const index = navItemsForLimelight.findIndex(item => item.id === pathname);
+    return index !== -1 ? index : 0;
+  }, [pathname, navItemsForLimelight]);
 
   return (
-    <nav className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-xl text-white border-b border-white/5">
+    <nav className="sticky top-0 z-50 w-full bg-black/90 backdrop-blur-xl text-white border-b border-white/5">
       <div className="max-w-[1600px] mx-auto px-8">
         <div className="flex items-center justify-between h-20">
 
-          {/* LEFT: Logo Section */}
-          <div
+          {/* LEFT: Branding */}
+          <div 
             className="flex items-center gap-4 pr-8 border-r border-white/10 group cursor-pointer"
             onClick={() => router.push('/dashboard')}
           >
-            <div className="p-2 bg-indigo-600 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.3)] transition-transform group-hover:scale-105">
+            <div className="p-2 bg-indigo-600 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.3)] group-hover:scale-105 transition-transform">
               <Activity className="w-5 h-5 text-white" />
             </div>
             <div className="flex flex-col">
@@ -70,39 +72,25 @@ const Navbar = () => {
             </div>
           </div>
 
-          {/* CENTER: Navigation Links */}
-          <div className="hidden xl:flex items-center justify-center flex-1 px-4 gap-1">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`relative flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 group/link ${isActive
-                    ? 'text-white bg-white/5 border border-white/5'
-                    : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
-                    }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400' : 'text-slate-600 group-hover/link:text-indigo-400'}`} />
-                  <span className="text-[10px] font-black uppercase tracking-widest whitespace-nowrap">
-                    {item.name}
-                  </span>
-
-                  {isActive && (
-                    <motion.span
-                      layoutId="nav-glow"
-                      className="absolute -bottom-[21px] left-1/2 -translate-x-1/2 w-8 h-[2px] bg-indigo-500 rounded-full shadow-[0_0_10px_#6366f1]"
-                    />
-                  )}
-                </Link>
-              );
-            })}
+          {/* CENTER: Limelight Navigation */}
+          <div className="hidden xl:flex flex-1 justify-center px-4">
+            <LimelightNav 
+              items={navItemsForLimelight}
+              defaultActiveIndex={activeIndex}
+              className="bg-transparent border-none h-20" 
+              limelightClassName="bg-indigo-500 shadow-[0_0_20px_#6366f1]"
+              iconClassName="w-4 h-4"
+            />
           </div>
 
-          {/* RIGHT: Role Badge & Logout */}
+          {/* RIGHT: Status, Toggle & Logout */}
           <div className="flex items-center gap-6 pl-8 border-l border-white/10">
-            {/* [RBAC] Role Badge */}
+            
+            {/* Theme Toggle Button */}
+            <div className="hidden sm:block scale-75 transform-gpu origin-right">
+              <SkyToggle />
+            </div>
+
             {role && (
               <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
                 <Shield className="w-3.5 h-3.5 text-indigo-400" />
@@ -110,20 +98,9 @@ const Navbar = () => {
               </div>
             )}
 
-            <div className="hidden lg:flex flex-col items-end">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Cloud Sync Active</span>
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                </span>
-              </div>
-              <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">System Health: Optimal</span>
-            </div>
-
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-500/5 border border-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all duration-300"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 hover:bg-rose-500 hover:text-white transition-all duration-300"
             >
               <LogOut size={14} />
               <span className="text-[10px] font-black uppercase tracking-widest">Logout</span>
