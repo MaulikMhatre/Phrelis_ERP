@@ -18,7 +18,7 @@
   --accent: #334155;
   --accent-foreground: #ffffff;
   --indigo-glow: rgba(99, 102, 241, 0.15);
-  --border: #1e293b; /* New token for dynamic borders */
+  --border: #1e293b; 
 }
 
 .light {
