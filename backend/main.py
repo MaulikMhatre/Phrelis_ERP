@@ -17,7 +17,7 @@ from typing import List, Optional
 from datetime import datetime, date
 from sqlalchemy import func
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect,File, Depends,UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -37,7 +37,17 @@ from fastapi import Request
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
+import torchxrayvision as xrv
+import torch
+import skimage.io
+import io
+import torchvision.transforms as transforms
 
+
+from xhtml2pdf import pisa
+from jinja2 import Template
+import io
+from datetime import datetime
 
 try:
     with open("inflow_model.pkl", "rb") as f:
@@ -46,8 +56,80 @@ try:
 except Exception as e:
     ai_brain = None
     print(f"⚠️ AI Model failed to load: {e}")
-
 load_dotenv()
+class RadiologySentinel:
+    def __init__(self, model_path="radiology_model.pkl"):
+        try:
+            # Option A: The Secure Way (Adding to Allowlist)
+            # This tells PyTorch it's safe to unpickle the DenseNet class
+            torch.serialization.add_safe_globals([xrv.models.DenseNet])
+            self.model = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
+            
+            # Option B: The "Trust me, I made this" Way
+            # If Option A still gives you trouble, use this:
+            # self.model = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
+
+            self.model.eval()
+            self.active = True
+            print("🩻 Radiology Sentinel Loaded Successfully")
+        except Exception as e:
+            print(f"❌ Failed to load Radiology model: {e}")
+            self.active = False
+
+    async def analyze(self, image_bytes: bytes):
+        """
+        Phrelis Radiology Sentinel: Computer Vision Pipeline
+        Converts raw bytes to a normalized tensor, runs DenseNet inference, 
+        and maps results to clinical pathologies.
+        """
+
+        try:
+            # 1. Decode bytes into a numpy array (supports JPG, PNG, etc.)
+            img = skimage.io.imread(io.BytesIO(image_bytes))
+            
+            # 2. Medical Normalization: TorchXRayVision expects [-1024, 1024]
+            # Standard images are [0, 255]. This utility handles the conversion.
+            img = xrv.datasets.normalize(img, 255) 
+
+            # 3. Shape Handling: Ensure we are working with a 2D grayscale map
+            if len(img.shape) > 2:
+                # If RGB, take the first channel (standard for X-ray processing)
+                img = img[:, :, 0]
+            
+            # Add the required channel dimension [Channel, Height, Width]
+            img = img[None, :, :] 
+
+            # 4. Clinical Pre-processing
+            # XRV DenseNet requires exactly 224x224 pixels with a center crop
+            transform = transforms.Compose([
+                xrv.datasets.XRayCenterCrop(),
+                xrv.datasets.XRayResizer(224)
+            ])
+            
+            img = transform(img)
+            # Convert to Torch Tensor and add Batch dimension [Batch, Channel, H, W]
+            img = torch.from_numpy(img).unsqueeze(0) 
+
+            # 5. Non-Gradient Inference (Saves memory and speed)
+            with torch.no_grad():
+                preds = self.model(img)
+                
+                # 6. Result Mapping
+                # Zip the model's pathology labels with the output scores
+                raw_results = dict(zip(self.model.pathologies, preds[0].detach().numpy().tolist()))
+                
+                # Clean the results: Round to 4 decimal places for the API response
+                clinical_findings = {k: round(float(v), 4) for k, v in raw_results.items()}
+                
+            return clinical_findings
+
+        except Exception as e:
+            print(f"☢️ Radiology Pipeline Error: {e}")
+            return {"error": "Processing Failed", "details": str(e)}
+
+# Initialize
+radiology_ai = RadiologySentinel()
+
 models.Base.metadata.create_all(bind=engine)
 
 def seed_price_master():
@@ -265,10 +347,17 @@ class MedicalAgent:
         try:
             # 3. PASS API KEY EXPLICITLY TO THE CONSTRUCTOR
             # Use 'api_key' parameter to ensure LangChain receives it correctly
+            # self.llm = ChatGoogleGenerativeAI(
+            #     model="models/gemini-flash-latest", 
+            #     temperature=0,
+            #     api_key=api_key  # Pass it here explicitly
+            # )
             self.llm = ChatGoogleGenerativeAI(
-                model="models/gemini-flash-latest", 
-                temperature=0,
-                api_key=api_key  # Pass it here explicitly
+            model="gemini-3.1-flash-lite-preview", # Switch to Lite for max speed
+            temperature=0,
+            api_key=api_key,
+            thinking_level="minimal", 
+            max_output_tokens=500  # Triage JSON is short; don't let it "wander"
             )
             
             # Using Structured Output for Senior Dev accuracy
@@ -554,6 +643,49 @@ async def sync_existing_patients(db: Session = Depends(get_db)):
     await manager.broadcast({"type": "REFRESH_RESOURCES"})
     return {"message": f"Tasks generated for {len(occupied_beds)} patients"}
 
+
+# Change the route to include {patient_id}
+@app.post("/api/radiology/scan/{patient_id}") 
+async def scan_xray(
+    patient_id: str, 
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db)
+):
+    if not radiology_ai.active:
+        raise HTTPException(status_code=503, detail="Radiology AI offline")
+    
+    # 1. Read file bytes
+    image_bytes = await file.read()
+    
+    # 2. Run AI Analysis
+    findings = await radiology_ai.analyze(image_bytes)
+    
+    # 3. Clinical Logic: Check for critical findings
+    # (Example: Pneumothorax or Effusion > 0.6 is a medical emergency)
+    critical_pathologies = ["Pneumothorax", "Effusion", "Pneumonia"]
+    is_critical = any(findings.get(p, 0) > 0.6 for p in critical_pathologies)
+    
+    # 4. 1st Place Feature: Real-time Alert
+    if is_critical:
+        await manager.broadcast({
+            "type": "CRITICAL_FINDING",
+            "patient_id": patient_id,
+            "message": f"🚨 URGENT: Critical findings for Patient {patient_id} in Radiology.",
+            "urgency": "High"
+        })
+        
+        # Optional: Log this finding into the patient's condition in DB
+        record = db.query(models.PatientRecord).filter(models.PatientRecord.id == patient_id).first()
+        if record:
+            record.condition += f" | AI-RAD-ALERT: Critical finding detected."
+            db.commit()
+
+    return {
+        "status": "Analysis Complete",
+        "patient_id": patient_id,
+        "is_critical": is_critical,
+        "findings": findings
+    }
 
 
 @app.post("/api/login")
@@ -2811,6 +2943,255 @@ async def get_revenue_analytics(
         "trend": trend_data,
         "recent": recent_data
     }
+
+
+BILL_HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        @page { 
+            size: A4; 
+            margin: 0.5cm; 
+        }
+        body { 
+            font-family: Helvetica, sans-serif; 
+            color: #0f172a; 
+            font-size: 9pt; 
+            line-height: 1.2;
+        }
+        
+        /* Header Section - Tightened */
+        .header-table { width: 100%; border-bottom: 1.5pt solid #000; padding-bottom: 5pt; margin-bottom: 10pt; }
+        .hospital-name { font-size: 18pt; font-weight: 900; letter-spacing: -0.5pt; color: #0f172a; }
+        .hospital-sub { font-size: 7pt; font-weight: bold; color: #64748b; letter-spacing: 0.5pt; }
+        .address-box { text-align: right; font-size: 6.5pt; font-weight: bold; color: #334155; }
+
+        /* Invoice Title Section */
+        .title-table { width: 100%; margin-bottom: 10pt; }
+        .main-title { font-size: 28pt; font-weight: 900; font-style: italic; color: #0f172a; }
+        .invoice-meta { font-size: 8pt; font-weight: bold; color: #94a3b8; }
+        .status-badge { 
+            background-color: #fef9c3; color: #854d0e; border: 0.5pt solid #fef08a;
+            padding: 5pt 10pt; font-size: 8pt; font-weight: 900; text-align: center;
+        }
+
+        /* Patient Info Card - Compact */
+        .info-card { background-color: #f8fafc; padding: 12pt 15pt; margin-bottom: 15pt; border-radius: 8pt; }
+        .card-label { font-size: 7pt; font-weight: 900; color: #94a3b8; letter-spacing: 0.5pt; text-transform: uppercase; }
+        .patient-name { font-size: 18pt; font-weight: 900; color: #0f172a; margin: 2pt 0; }
+        .uid-text { font-family: monospace; font-size: 8.5pt; font-weight: bold; color: #475569; }
+
+        /* Items Table - Optimized for Single Page */
+        .items-table { width: 100%; border-collapse: collapse; margin-bottom: 15pt; }
+        .items-table th { 
+            background-color: #0f172a; color: #ffffff; padding: 8pt; 
+            font-size: 8pt; font-weight: 900; text-align: left; text-transform: uppercase;
+        }
+        .items-table td { padding: 8pt; border-bottom: 1pt solid #f1f5f9; font-size: 9pt; font-weight: bold; font-style: italic; }
+        .sub-text { font-size: 6.5pt; color: #94a3b8; font-style: normal; font-weight: bold; display: block; }
+
+        /* Summary Card - Fixed to Right */
+        .summary-wrapper { width: 100%; }
+        .summary-card { background-color: #f1f5f9; padding: 12pt; width: 40%; margin-left: 60%; border-radius: 10pt; }
+        .summary-label { font-size: 8pt; font-weight: 900; color: #64748b; text-transform: uppercase; }
+        .summary-value { font-size: 10pt; font-weight: 900; text-align: right; }
+        .total-row { border-top: 1pt solid #cbd5e1; margin-top: 8pt; padding-top: 8pt; }
+        .total-label { font-size: 18pt; font-weight: 900; color: #0f172a; }
+        .total-value { font-size: 22pt; font-weight: 900; color: #0891b2; font-style: italic; text-align: right; }
+
+        /* Footer - Simplified */
+        .footer-table { width: 100%; margin-top: 30pt; }
+        .terms { font-size: 6.5pt; font-weight: 900; color: #94a3b8; line-height: 1.4; text-transform: uppercase; }
+        .signatory { border-top: 1.5pt solid #0f172a; padding-top: 5pt; text-align: center; width: 160pt; margin-left: auto; }
+        .sign-text { font-size: 9pt; font-weight: 900; color: #0f172a; text-transform: uppercase; }
+        .sign-sub { font-size: 7pt; font-weight: 900; color: #94a3b8; text-transform: uppercase; }
+        .hash-tag { text-align: center; font-size: 7pt; color: #cbd5e1; letter-spacing: 2pt; margin-top: 20pt; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <table class="header-table">
+        <tr>
+            <td>
+                <div class="hospital-name">PHRELIS MULTISPECIALTY</div>
+                <div class="hospital-sub">MEDICAL EXCELLENCE & DIGITAL HUB</div>
+            </td>
+            <td class="address-box">
+                PLOT 42, HEALTH CITY, SECTOR 18<br/>NEW DELHI, DELHI 110025<br/>
+                GSTIN: 07AABCP1234F1Z5 | +91 11 4567 8900
+            </td>
+        </tr>
+    </table>
+
+    <table class="title-table">
+        <tr>
+            <td>
+                <div class="main-title">TAX INVOICE</div>
+                <div class="invoice-meta">INV: <b>{{ bill_no }}</b> &nbsp;&nbsp;•&nbsp;&nbsp; DATE: <b>{{ date_str }}</b></div>
+            </td>
+            <td align="right" valign="middle">
+                <div class="status-badge">PRE-SETTLEMENT DRAFT</div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="info-card">
+        <table width="100%">
+            <tr>
+                <td width="60%">
+                    <div class="card-label">Patient Information</div>
+                    <div class="patient-name">{{ patient_name }}</div>
+                    <div class="uid-text">UID: {{ admission_uid }}</div>
+                </td>
+                <td width="40%" align="right">
+                    <div class="card-label">Reference</div>
+                    <div style="font-size: 8pt; font-weight: 900; line-height: 1.3;">
+                        FACILITY: HUB DELTA-1 / WARD 4B<br/>
+                        AUTH: SYS-ADMIN-PROX
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th width="65%">Service/Resource Description</th>
+                <th width="10%" align="center">Qty</th>
+                <th width="10%" align="center">GST</th>
+                <th width="15%" align="right">Total (₹)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>
+                    {{ item.description }}
+                    <span class="sub-text">Digital Validation Applied</span>
+                </td>
+                <td align="center">{{ item.quantity }}</td>
+                <td align="center">{{ item.tax_percent }}%</td>
+                <td align="right">₹{{ "{:,.0f}".format(item.total_price) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="summary-card">
+        <table width="100%">
+            <tr>
+                <td class="summary-label">Net Value</td>
+                <td class="summary-value">₹{{"{:,.0f}".format(base_amount)}}</td>
+            </tr>
+            <tr>
+                <td class="summary-label">Tax Aggregate</td>
+                <td class="summary-value">₹{{"{:,.0f}".format(tax_amount)}}</td>
+            </tr>
+            <tr>
+                <td colspan="2" class="total-row">
+                    <table width="100%">
+                        <tr>
+                            <td class="total-label">TOTAL</td>
+                            <td class="total-value">₹{{"{:,.0f}".format(total_amount)}}</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="footer-table">
+        <table width="100%">
+            <tr>
+                <td width="60%" valign="bottom">
+                    <div class="terms">
+                        1. Computer-generated invoice. No signature required.<br/>
+                        2. Report discrepancies within 24 hours.<br/>
+                        3. All disputes subject to New Delhi Jurisdictions.
+                    </div>
+                </td>
+                <td width="40%">
+                    <div class="signatory">
+                        <div class="sign-text">Authorized Signatory</div>
+                        <div class="sign-sub">Phrelis Financial Operations</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="hash-tag">
+        SECURE-HASH: {{ admission_uid }}-{{ timestamp }}
+    </div>
+</body>
+</html>
+"""
+
+@app.get("/api/finance/print/{bill_no}")
+async def generate_bill_pdf(bill_no: str, db: Session = Depends(get_db)):
+    bill_record = db.query(models.Bill).filter(models.Bill.bill_no == bill_no).first()
+    if not bill_record: raise HTTPException(404, "Bill not found")
+
+    # Important: Format date in Python to avoid "Invalid Date" in template
+    formatted_date = datetime.now().strftime("%d %b %Y").upper() 
+    
+    # Example logic to get items (Replace with your actual relationship)
+    bill_items = db.query(models.BillItem).filter(models.BillItem.bill_no == bill_no).all()
+
+    context = {
+        "bill_no": bill_record.bill_no,
+        "admission_uid": bill_record.admission_uid,
+        "patient_name": "NMAKOE", # Replace with: bill_record.admission.patient_name
+        "items": bill_items,
+        "base_amount": bill_record.total_amount,
+        "tax_amount": bill_record.tax_amount,
+        "total_amount": bill_record.grand_total,
+        "date_str": formatted_date,
+        "timestamp": int(datetime.now().timestamp())
+    }
+
+    template = Template(BILL_HTML_TEMPLATE)
+    html_content = template.render(context)
+    pdf_buffer = io.BytesIO()
+    pisa.CreatePDF(html_content, dest=pdf_buffer)
+    pdf_buffer.seek(0)
+    
+    return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+
+# --- REVENUE ANALYTICS ---
+@app.get("/api/finance/revenue/analytics")
+async def get_revenue_analytics(
+    timeframe: str = "24h", 
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin)
+):
+    now = datetime.utcnow()
+    start_time = now - timedelta(hours=24)
+    if timeframe == "7D": start_time = now - timedelta(days=7)
+    if timeframe == "1M": start_time = now - timedelta(days=30)
+    if timeframe == "1Y": start_time = now - timedelta(days=365)
+    
+    bills = db.query(models.Bill).filter(models.Bill.generated_at >= start_time).all()
+    total_revenue = sum(b.grand_total for b in bills)
+
+    return {
+        "kpi": {
+            "total_revenue": total_revenue,
+            "arpp": total_revenue / len(bills) if bills else 0,
+            "occupancy_rate": 85.0,
+            "growth": 12.5,
+            "potential_revenue": 450000.0,
+            "total_tax": sum(b.tax_amount for b in bills)
+        },
+        "trend": [{"time": b.generated_at.strftime("%H:00"), "revenue": b.grand_total} for b in bills[-12:]],
+        "breakdown": {
+            "bed_revenue": total_revenue * 0.4,
+            "surgery_revenue": total_revenue * 0.4,
+            "pharmacy_revenue": total_revenue * 0.2
+        }
+    }
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

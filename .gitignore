@@ -11,3 +11,7 @@ frontend/.env.local
 # General
 .DS_Store
 .env
+*.db
+# Python cache
+__pycache__/
+*.pyc
