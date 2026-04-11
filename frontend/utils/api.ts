@@ -24,9 +24,13 @@ export const endpoints = {
   completeSurgery: (id: string) => `${API_BASE_URL}/api/surgery/complete/${id}`,
   releaseSurgery: (id: string) => `${API_BASE_URL}/api/surgery/release/${id}`,
   // Ambulances
-  ambulances: `${API_BASE_URL}/api/ambulances`,
-  ambulanceDispatch: `${API_BASE_URL}/api/ambulance/dispatch`,
-  ambulanceReset: (id: string) => `${API_BASE_URL}/api/ambulance/reset/${id}`,
+    ambulances: `${API_BASE_URL}/api/ambulances`,
+    ambulanceDispatch: `${API_BASE_URL}/api/ambulance/dispatch`,
+    ambulanceReset: (id: string) => `${API_BASE_URL}/api/ambulance/reset/${id}`,
+    createRescueSession: `${API_BASE_URL}/api/ambulance/create-session`,
+    rescueUpdate: (id: string) => `${API_BASE_URL}/api/rescue/update/${id}`,
+    rescueStatus: (id: string) => `${API_BASE_URL}/api/rescue/status/${id}`,
+    activeMission: (id: string) => `${API_BASE_URL}/api/ambulance/active-mission?ambulance_id=${id}`,
 
   // Dashboard / Analytics
   dashboardStats: `${API_BASE_URL}/api/dashboard/stats`,

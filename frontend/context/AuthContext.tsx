@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useRouter } from 'next/navigation';
 
 // User roles matching backend UserRole enum
-export type UserRole = 'Admin' | 'Doctor' | 'Nurse';
+export type UserRole = 'Admin' | 'Doctor' | 'Nurse'| 'Ambulance';
 
 interface AuthContextType {
     isAuthenticated: boolean;

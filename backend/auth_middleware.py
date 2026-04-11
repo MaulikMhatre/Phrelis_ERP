@@ -140,5 +140,7 @@ def require_role(allowed_roles: List[str]):
 
 # Convenience dependencies for common role combinations
 require_admin = require_role(["Admin"])
+require_ambulance = require_role(["Ambulance"])
+require_admin_or_ambulance = require_role(["Admin", "Ambulance"])
 require_admin_or_doctor = require_role(["Admin", "Doctor"])
-require_any_staff = require_role(["Admin", "Doctor", "Nurse"])
+require_any_staff = require_role(["Admin", "Doctor", "Nurse","Ambulance"])

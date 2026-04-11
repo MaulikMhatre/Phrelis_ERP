@@ -10,7 +10,7 @@ import httpx
 import asyncio
 import numpy as np
 from pydantic import BaseModel
-
+from typing import Optional
 from datetime import timedelta
 from datetime import datetime
 from typing import List, Optional
@@ -32,7 +32,7 @@ import models
 from inventory_service import InventoryService 
 from billing_service import BillingService # [NEW]
 from sqlalchemy import desc 
-from auth_middleware import get_current_user, require_role, require_admin, require_admin_or_doctor, require_any_staff, CurrentUser, log_audit_event # [RBAC] 
+from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, CurrentUser, log_audit_event # [RBAC] 
 from fastapi import Request
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -126,6 +126,29 @@ class RadiologySentinel:
         except Exception as e:
             print(f"☢️ Radiology Pipeline Error: {e}")
             return {"error": "Processing Failed", "details": str(e)}
+
+from fastapi.security import OAuth2PasswordBearer
+
+# This tells FastAPI that the token should be fetched from the "/api/login" URL
+# Update the tokenUrl to match your actual login route
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+
+async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    if not token:
+        return None
+    try:
+        # Re-use your existing logic to decode the token
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+        # Fetch the user from DB
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        return user
+    except:
+        return None
+
+
 
 # Initialize
 radiology_ai = RadiologySentinel()
@@ -233,6 +256,14 @@ class ICDClassification(BaseModel):
     confidence_score: float
     clinical_rationale: str
     triage_urgency: str # CRITICAL | URGENT | STABLE
+
+
+
+# --- Pydantic Models for Rescue ---
+class LocationUpdate(BaseModel):
+    lat: float
+    lng: float
+    accuracy: float
 
 
 COMMON_ER_MAP = {
@@ -544,6 +575,7 @@ class AmbulanceRequest(BaseModel):
     severity: str 
     location: str
     eta: int
+    session_id: Optional[str] = None
 
 class StaffClockIn(BaseModel):
     staff_id: str
@@ -905,6 +937,7 @@ async def restock_inventory_item(
             "added": request.quantity_to_add
         }
     }
+
 
 
 @app.post("/api/erp/admit")
@@ -1702,74 +1735,6 @@ def search_icd_codes(query: str):
 
 
 
-# def calculate_priority_index(patient: models.PatientQueue):
-#     """
-#     ESI Score: (6 - baseAcuity) * 20 points.
-#     Symptom Weights: Bonus points for 'Chest Pain' (+25), 'Shortness of Breath' (+20), 'Fever' (+10).
-#     Wait-Time Compensation: +1 point for every 2 minutes spent in the queue.
-#     """
-#     score = (6 - patient.base_acuity) * 20
-    
-#     # Symptom Bonuses
-#     symptoms_lower = [s.lower() for s in (patient.symptoms or [])]
-#     if any("chest pain" in s for s in symptoms_lower): score += 25
-#     if any("shortness of breath" in s or "sob" in s for s in symptoms_lower): score += 20
-#     if any("fever" in s for s in symptoms_lower): score += 10
-    
-#     # Wait Time Compensation
-#     wait_time_mins = (datetime.utcnow() - patient.check_in_time).total_seconds() / 60
-#     score += (wait_time_mins // 2)
-    
-#     return float(score)
-
-# @app.post("/api/queue/checkin")
-# async def queue_checkin(request: QueueCheckInRequest, db: Session = Depends(get_db)):
-#     new_id = str(uuid.uuid4())
-#     patient = models.PatientQueue(
-#         id=new_id,
-#         patient_name=request.patient_name,
-#         patient_age=request.patient_age,
-#         gender=request.gender,
-#         base_acuity=request.base_acuity,
-#         vitals=request.vitals,
-#         symptoms=request.symptoms,
-#         check_in_time=datetime.utcnow(),
-#         status="WAITING"
-#     )
-#     db.add(patient)
-#     db.commit()
-#     db.refresh(patient)
-    
-#     # Calculate initial score
-#     patient.priority_score = calculate_priority_index(patient)
-#     db.commit()
-    
-#     await manager.broadcast({"type": "QUEUE_UPDATE"})
-#     return {"status": "success", "patient_id": new_id}
-
-# @app.get("/api/queue/sorted")
-# def get_sorted_queue(db: Session = Depends(get_db)):
-#     patients = db.query(models.PatientQueue).filter(models.PatientQueue.status == "WAITING").all()
-    
-#     # Recalculate scores on the fly for real-time wait-time compensation
-#     for p in patients:
-#         p.priority_score = calculate_priority_index(p)
-    
-#     db.commit() # Save updated scores
-    
-#     # Re-fetch sorted (or just sort in memory)
-#     sorted_patients = sorted(patients, key=lambda x: x.priority_score, reverse=True)
-    
-#     # Add Surge Warning logic
-#     avg_score = sum(p.priority_score for p in sorted_patients) / len(sorted_patients) if sorted_patients else 0
-#     surge_warning = avg_score > 100 # Example threshold
-
-#     return {
-#         "patients": sorted_patients,
-#         "surge_warning": surge_warning,
-#         "average_score": avg_score
-#     }
-
 @app.get("/api/queue/rooms")
 def get_doctor_rooms(db: Session = Depends(get_db)):
     return db.query(models.DoctorRoom).all()
@@ -1996,61 +1961,261 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     }
 # Ambulance System 
 
+# --- Rescue Link Endpoints ---
+
+@app.post("/api/ambulance/create-session")
+async def create_rescue_session(db: Session = Depends(get_db)):
+    """Generates a unique session for a caller"""
+    session_id = str(uuid.uuid4())[:8] # Short ID for easier URLs
+    new_session = models.EmergencySession(id=session_id, status="LINK_SENT")
+    db.add(new_session)
+    db.commit()
+    
+    # In a real scenario, you'd send this via SMS/WhatsApp
+    return {
+        "session_id": session_id,
+        "rescue_url": f"http://localhost:3000/rescue/{session_id}" 
+    }
+
+@app.post("/api/rescue/update/{session_id}")
+async def update_caller_location(session_id: str, data: LocationUpdate, db: Session = Depends(get_db)):
+    """This endpoint is called by the Patient's Phone Browser"""
+    session = db.query(models.EmergencySession).filter_by(id=session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session expired or invalid")
+    
+    session.patient_lat = data.lat
+    session.patient_lng = data.lng
+    session.accuracy = data.accuracy
+    session.status = "LOCATED"
+    db.commit()
+
+    # Alert the Dispatcher via WebSocket
+    await manager.broadcast({
+        "type": "RESCUE_LOCATED",
+        "session_id": session_id,
+        "lat": data.lat,
+        "lng": data.lng
+    })
+    return {"status": "received"}
+
+@app.get("/api/rescue/status/{session_id}")
+def get_rescue_status(session_id: str, db: Session = Depends(get_db)):
+    return db.query(models.EmergencySession).filter_by(id=session_id).first()
+
+
+
 @app.get("/api/ambulances")
 def list_ambulances(db: Session = Depends(get_db)):
     return db.query(models.Ambulance).all()
 
+# --- Updated Pydantic Model to include Session ---
+class AmbulanceDispatchForm(BaseModel):
+    severity: str 
+    location: str
+    eta: int
+    session_id: Optional[str] = None # Allow session_id in the body
+
 @app.post("/api/ambulance/dispatch")
-def dispatch_ambulance(request: AmbulanceRequest, db: Session = Depends(get_db)):
-    # 1. Check Hospital Capacity (Diversion Logic)
+async def dispatch_ambulance(
+    request: AmbulanceRequest, 
+    db: Session = Depends(get_db)
+):
+    session_id = request.session_id
+    """
+    Phrelis Intelligent Dispatch:
+    Combines Diversion Logic, Available Fleet Search, and GPS Session Mapping.
+    """
+    # 1. Hospital Capacity Check (Diversion Logic)
     required_type = "ICU" if request.severity.upper() == "HIGH" else "ER"
     
-    total_beds = 20 if required_type == "ICU" else 60
+    # Precise Bed Count based on your initialize_hospital_beds function
+    total_allowed = 20 if required_type == "ICU" else 60
     occupied = db.query(models.BedModel).filter(
         models.BedModel.type == required_type, 
         models.BedModel.is_occupied == True
     ).count()
     
-    if occupied >= total_beds:
+    if occupied >= total_allowed:
         return {
             "status": "DIVERTED", 
-            "message": f"Hospital {required_type} Full. Ambulance Redirected to neighboring facility.",
+            "message": f"CRITICAL: {required_type} at capacity. Redirecting to nearest trauma center.",
             "ambulance_id": None
         }
 
-    # 2. Find Available Ambulance
+    # 2. GPS Handshake (The Rescue Link Logic)
+    precise_coords = None
+    if session_id:
+        session = db.query(models.EmergencySession).filter(models.EmergencySession.id == session_id).first()
+        if session and session.patient_lat:
+            precise_coords = {"lat": session.patient_lat, "lng": session.patient_lng}
+            session.status = "DISPATCHED"
+
+    # 3. Find Available Ambulance (The Fleet Search)
     ambulance = db.query(models.Ambulance).filter(models.Ambulance.status == "IDLE").first()
     
     if not ambulance:
         return {
             "status": "DELAYED", 
-            "message": "No ambulances available at station.",
+            "message": "All units currently engaged. Queueing request.",
             "ambulance_id": None
         }
 
-    # 3. Dispatch
+    # 4. Final Dispatch Execution
     ambulance.status = "DISPATCHED"
-    ambulance.location = request.location
+    
+    # Use Precise GPS if available, otherwise use the manual text location
+    final_location = f"GPS: {precise_coords['lat']}, {precise_coords['lng']}" if precise_coords else request.location
+    ambulance.location = final_location
     ambulance.eta_minutes = request.eta
+    
+    # If using a session, link this ambulance to that session for the dispatcher view
+    if session_id and session:
+        session.ambulance_id = ambulance.id
+
+    try:
+        db.commit()
+        
+        # 5. Real-time Broadcast to Dashboard
+        await manager.broadcast({
+            "type": "AMBULANCE_UPDATE",
+            "ambulance_id": ambulance.id,
+            "status": "DISPATCHED",
+            "patient_coords": precise_coords,
+            "target": required_type,
+            "location": final_location,
+            "eta": request.eta
+        })
+        
+        # Also broadcast for specific job alerts if needed
+        await manager.broadcast({
+            "type": "NEW_AMBULANCE_JOB",
+            "ambulance_id": ambulance.id,
+            "location": final_location
+        })
+        
+        return {
+            "status": "DISPATCHED",
+            "ambulance_id": ambulance.id,
+            "eta": f"{request.eta} mins",
+            "target_unit": required_type,
+            "precise_location": precise_coords
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Dispatch Error: {str(e)}")
+    
+@app.post("/api/ambulance/reset/{ambulance_id}")
+async def reset_ambulance(ambulance_id: str, db: Session = Depends(get_db)):
+    amb = db.query(models.Ambulance).filter(models.Ambulance.id == ambulance_id).first()
+    if not amb:
+        raise HTTPException(status_code=404, detail="Ambulance not found")
+        
+    amb.status = "IDLE"
+    amb.location = "Station"
+    amb.eta_minutes = 0
     db.commit()
     
+    # [FIX] Notify frontend to turn the ambulance icon green again
+    await manager.broadcast({
+        "type": "AMBULANCE_UPDATE",
+        "ambulance_id": ambulance_id,
+        "status": "IDLE"
+    })
+    
+    return {"status": "success", "message": f"Ambulance {ambulance_id} is back in service."}
+
+
+@app.get("/api/ambulance/active-mission")
+async def get_active_mission(
+    ambulance_id: str = None, # Optional: used if not logged in
+    current_user: CurrentUser = Depends(get_current_user_optional), # Your auth helper
+    db: Session = Depends(get_db)
+):
+    # 1. Determine which ID to look for
+    # If logged in as a Driver, use their staff_id. Otherwise, use the provided query param.
+    target_id = None
+    if current_user and current_user.role == "Ambulance":
+        target_id = current_user.staff_id
+    elif ambulance_id:
+        target_id = ambulance_id
+
+    if not target_id:
+        return {"status": "IDLE", "message": "No unit identified"}
+
+    # 2. Get the Ambulance Status from the main Ambulance table
+    amb = db.query(models.Ambulance).filter(models.Ambulance.id == target_id).first()
+    
+    if not amb:
+        return {"status": "IDLE", "message": "Unit not found in fleet"}
+
+    # 3. If the unit is DISPATCHED, find the latest GPS session
+    session_data = None
+    if amb.status == "DISPATCHED":
+        session = db.query(models.EmergencySession).filter(
+            models.EmergencySession.ambulance_id == target_id
+        ).order_by(models.EmergencySession.created_at.desc()).first()
+        
+        if session:
+            return {
+                "status": "DISPATCHED", # Match frontend expected state
+                "ambulance_id": target_id,
+                "lat": session.patient_lat,
+                "lng": session.patient_lng,
+                "location_text": amb.location,
+                "severity": "HIGH", 
+                "precise_coords": {
+                    "lat": session.patient_lat,
+                    "lng": session.patient_lng,
+                    "accuracy": session.accuracy
+                }
+            }
+
+    # Default if no mission is active
+    return {"status": "IDLE", "ambulance_id": target_id}
+
+
+
+@app.get("/api/ambulance/active-mission/{ambulance_id}")
+async def get_active_mission(ambulance_id: str, db: Session = Depends(get_db)):
+    # 1. Get the ambulance
+    amb = db.query(models.Ambulance).filter(models.Ambulance.id == ambulance_id).first()
+    if not amb:
+        raise HTTPException(status_code=404, detail="Ambulance not found")
+    
+    # 2. If dispatched, find the related emergency session for high-accuracy GPS
+    session_data = None
+    if amb.status == "DISPATCHED":
+        session = db.query(models.EmergencySession).filter(
+            models.EmergencySession.ambulance_id == ambulance_id
+        ).order_by(models.EmergencySession.created_at.desc()).first()
+        
+        if session:
+            session_data = {
+                "lat": session.patient_lat,
+                "lng": session.patient_lng,
+                "accuracy": session.accuracy
+            }
+
     return {
-        "status": "DISPATCHED",
-        "ambulance_id": ambulance.id,
-        "eta": f"{request.eta} mins",
-        "target_unit": required_type
+        "ambulance_id": amb.id,
+        "status": amb.status,
+        "location_text": amb.location, # The "GPS: lat,long" or address string
+        "precise_coords": session_data,
+        "eta": amb.eta_minutes
     }
 
-@app.post("/api/ambulance/reset/{ambulance_id}")
-def reset_ambulance(ambulance_id: str, db: Session = Depends(get_db)):
-    amb = db.query(models.Ambulance).filter(models.Ambulance.id == ambulance_id).first()
-    if amb:
-        amb.status = "IDLE"
-        amb.location = "Station"
-        amb.eta_minutes = 0
-        db.commit()
-        return {"status": "success", "message": f"Ambulance {ambulance_id} returned to station."}
-    raise HTTPException(status_code=404, detail="Ambulance not found")
+@app.get("/api/ambulance/my-mission")
+async def get_driver_task(
+    current_user: CurrentUser = Depends(require_ambulance), 
+    db: Session = Depends(get_db)
+):
+    # This logic only runs if the logged-in user has role 'Ambulance'
+    mission = db.query(models.EmergencySession).filter(
+        models.EmergencySession.ambulance_id == current_user.staff_id,
+        models.EmergencySession.status == "DISPATCHED"
+    ).first()
+    return mission
 
 # Staff & Task Management 
 
@@ -2262,6 +2427,17 @@ def seed_db():
                 hashed_password="password123"
             ))
             
+        # 5 Ambulance Drivers (AMB-01 to AMB-05) matching Ambulance IDs
+        for i in range(1, 6):
+            staff_id = f"AMB-0{i}"
+            staff_members.append(models.Staff(
+                id=staff_id,
+                name=f"Driver {i}",
+                role="Ambulance",
+                is_clocked_in=True,
+                hashed_password="password123"
+            ))
+
         db.add_all(staff_members)
         db.commit()
     

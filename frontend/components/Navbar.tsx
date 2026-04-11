@@ -29,7 +29,7 @@ const Navbar = () => {
     { name: 'OPD', href: '/queue', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Triage', href: '/triage', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Admin', href: '/admin', icon: Settings, roles: ['Admin', 'Doctor'] },
-    { name: 'Radiology', href: '/radiology', icon: Clock, roles: ['Admin'] },
+    { name: 'Radiology', href: '/radiology', icon: Clock, roles: ['Admin','Doctor','Nurse'] },
     { name: 'History', href: '/history', icon: Clock, roles: ['Admin'] },
     { name: 'Staff', href: '/staff', icon: Users, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck, roles: ['Admin', 'Doctor', 'Nurse'] }

@@ -309,3 +309,17 @@ class AuditLog(Base):
     resource_path = Column(String)
     details = Column(String, nullable=True) # clinical context or other info
     ip_address = Column(String)
+
+
+
+
+
+class EmergencySession(Base):
+    __tablename__ = "emergency_sessions"
+    id = Column(String, primary_key=True, index=True) # Unique Token (e.g., uuid)
+    ambulance_id = Column(String, ForeignKey("ambulances.id"), nullable=True)
+    patient_lat = Column(Float, nullable=True)
+    patient_lng = Column(Float, nullable=True)
+    accuracy = Column(Float, nullable=True)
+    status = Column(String, default="LINK_SENT") # LINK_SENT, LOCATED, DISPATCHED
+    created_at = Column(DateTime, default=datetime.utcnow)
