@@ -10,11 +10,13 @@ interface AuthContextType {
     isAuthenticated: boolean;
     role: UserRole | null;
     staffId: string | null;
+    name: string | null;
     token: string | null;
-    login: (token: string, role: UserRole, staffId: string) => void;
+    login: (token: string, role: UserRole, staffId: string, name: string) => void;
     logout: () => void;
     hasAccess: (allowedRoles: UserRole[]) => boolean;
 }
+
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -22,6 +24,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [role, setRole] = useState<UserRole | null>(null);
     const [staffId, setStaffId] = useState<string | null>(null);
+    const [name, setName] = useState<string | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const router = useRouter();
 
@@ -30,23 +33,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const storedToken = localStorage.getItem('token');
         const storedRole = localStorage.getItem('role') as UserRole | null;
         const storedStaffId = localStorage.getItem('staff_id');
+        const storedName = localStorage.getItem('user_name');
 
         if (storedToken && storedRole && storedStaffId) {
             setToken(storedToken);
             setRole(storedRole);
             setStaffId(storedStaffId);
+            setName(storedName);
             setIsAuthenticated(true);
         }
     }, []);
 
-    const login = useCallback((newToken: string, newRole: UserRole, newStaffId: string) => {
+    const login = useCallback((newToken: string, newRole: UserRole, newStaffId: string, newName: string) => {
         localStorage.setItem('token', newToken);
         localStorage.setItem('role', newRole);
         localStorage.setItem('staff_id', newStaffId);
+        localStorage.setItem('user_name', newName);
 
         setToken(newToken);
         setRole(newRole);
         setStaffId(newStaffId);
+        setName(newName);
         setIsAuthenticated(true);
     }, []);
 
@@ -54,10 +61,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         localStorage.removeItem('token');
         localStorage.removeItem('role');
         localStorage.removeItem('staff_id');
+        localStorage.removeItem('user_name');
 
         setToken(null);
         setRole(null);
         setStaffId(null);
+        setName(null);
         setIsAuthenticated(false);
 
         router.push('/login');
@@ -73,6 +82,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             isAuthenticated,
             role,
             staffId,
+            name,
             token,
             login,
             logout,

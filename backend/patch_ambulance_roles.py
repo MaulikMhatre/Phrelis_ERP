@@ -12,9 +12,13 @@ def patch_roles():
         # 1. Add Ambulance Drivers to the Staff Table
         # We add 2 drivers as an example. Role must be 'Ambulance' to match middleware.
         drivers = [
-            ('AMB-DRIVER-01', 'Rajesh Kumar', 'Ambulance', True, 'driver123'),
-            ('AMB-DRIVER-02', 'Suresh Pal', 'Ambulance', True, 'driver123')
+            ('AMB-DRIVER-01', 'Rajesh Kumar', 'Ambulance', 1, 'driver123'),
+            ('AMB-DRIVER-02', 'Suresh Pal', 'Ambulance', 1, 'driver123'),
+            ('AMB-DRIVER-03', 'Amit Singh', 'Ambulance', 1, 'driver123'),
+            ('AMB-DRIVER-04', 'Vikram Rathore', 'Ambulance', 1, 'driver123'),
+            ('AMB-DRIVER-05', 'Sanjay Dutt', 'Ambulance', 1, 'driver123')
         ]
+
         
         print("👤 Seeding Ambulance Driver accounts...")
         for driver in drivers:

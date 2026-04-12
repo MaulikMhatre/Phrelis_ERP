@@ -28,7 +28,8 @@ export default function LoginPage() {
         const data = await res.json();
 
         // [RBAC] Use AuthContext login instead of direct localStorage
-        login(data.access_token, data.role as UserRole, data.staff_id);
+        login(data.access_token, data.role as UserRole, data.staff_id, data.name);
+
 
         // Advanced RBAC Redirection with slight delay for "Success" animation
         setTimeout(() => {

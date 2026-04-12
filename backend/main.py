@@ -17,7 +17,7 @@ from typing import List, Optional
 from datetime import datetime, date
 from sqlalchemy import func
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect,File, Depends,UploadFile, Response
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect,File, Depends,UploadFile, Response,status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -142,11 +142,14 @@ async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme
         user_id: str = payload.get("sub")
         if user_id is None:
             return None
-        # Fetch the user from DB
-        user = db.query(models.User).filter(models.User.id == user_id).first()
-        return user
+        # Fetch the staff member from DB
+        staff = db.query(models.Staff).filter(models.Staff.id == user_id).first()
+        if staff:
+            return CurrentUser(staff_id=staff.id, role=staff.role, name=staff.name)
+        return None
     except:
         return None
+
 
 
 
@@ -749,8 +752,10 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     return {
         "access_token": access_token, 
         "role": staff.role, 
-        "staff_id": staff.id
+        "staff_id": staff.id,
+        "name": staff.name
     }
+
 
 @app.post("/api/logout")
 async def logout(
@@ -2107,14 +2112,31 @@ async def dispatch_ambulance(
     
 @app.post("/api/ambulance/reset/{ambulance_id}")
 async def reset_ambulance(ambulance_id: str, db: Session = Depends(get_db)):
-    amb = db.query(models.Ambulance).filter(models.Ambulance.id == ambulance_id).first()
+    query_id = ambulance_id
+    if ambulance_id.startswith("AMB-DRIVER-"):
+        query_id = ambulance_id.replace("AMB-DRIVER-", "AMB-")
+
+    amb = db.query(models.Ambulance).filter(models.Ambulance.id == query_id).first()
     if not amb:
-        raise HTTPException(status_code=404, detail="Ambulance not found")
+        raise HTTPException(status_code=404, detail=f"Ambulance {query_id} not found")
+
         
     amb.status = "IDLE"
     amb.location = "Station"
     amb.eta_minutes = 0
+    
+    # [FIX] Also mark the linked EmergencySession as COMPLETED to prevent re-sync loop
+    session = db.query(models.EmergencySession).filter(
+        models.EmergencySession.ambulance_id == query_id,
+        models.EmergencySession.status == "DISPATCHED"
+    ).order_by(models.EmergencySession.created_at.desc()).first()
+    
+    if session:
+        session.status = "COMPLETED"
+        print(f"[DEBUG] reset_ambulance: Marked session {session.id} as COMPLETED")
+
     db.commit()
+
     
     # [FIX] Notify frontend to turn the ambulance icon green again
     await manager.broadcast({
@@ -2127,61 +2149,77 @@ async def reset_ambulance(ambulance_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/ambulance/active-mission")
-async def get_active_mission(
-    ambulance_id: str = None, # Optional: used if not logged in
-    current_user: CurrentUser = Depends(get_current_user_optional), # Your auth helper
+async def get_active_mission_legacy(
+    ambulance_id: Optional[str] = None, 
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional), 
     db: Session = Depends(get_db)
 ):
     # 1. Determine which ID to look for
-    # If logged in as a Driver, use their staff_id. Otherwise, use the provided query param.
     target_id = None
     if current_user and current_user.role == "Ambulance":
         target_id = current_user.staff_id
     elif ambulance_id:
-        target_id = ambulance_id
+        target_id = ambulance_id.strip().upper() # Normalize ID
 
     if not target_id:
+        print("[DEBUG] get_active_mission_legacy: No target_id found")
         return {"status": "IDLE", "message": "No unit identified"}
 
-    # 2. Get the Ambulance Status from the main Ambulance table
-    amb = db.query(models.Ambulance).filter(models.Ambulance.id == target_id).first()
+    print(f"[DEBUG] get_active_mission_legacy: Fetching mission for {target_id}")
+
+    # [FIX] Mapping Logic: If the ID is a driver ID (e.g., AMB-DRIVER-01), 
+    # we map it to the corresponding ambulance ID (e.g., AMB-01)
+    query_id = target_id
+    if target_id.startswith("AMB-DRIVER-"):
+        query_id = target_id.replace("AMB-DRIVER-", "AMB-")
+        print(f"[DEBUG] Mapped {target_id} to {query_id}")
+
+    # 2. Get the Ambulance Status
+    amb = db.query(models.Ambulance).filter(models.Ambulance.id == query_id).first()
     
     if not amb:
-        return {"status": "IDLE", "message": "Unit not found in fleet"}
+        print(f"[DEBUG] get_active_mission_legacy: Unit {query_id} not found")
+        return {"status": "IDLE", "message": "Unit not found"}
 
-    # 3. If the unit is DISPATCHED, find the latest GPS session
-    session_data = None
-    if amb.status == "DISPATCHED":
-        session = db.query(models.EmergencySession).filter(
-            models.EmergencySession.ambulance_id == target_id
-        ).order_by(models.EmergencySession.created_at.desc()).first()
-        
-        if session:
-            return {
-                "status": "DISPATCHED", # Match frontend expected state
-                "ambulance_id": target_id,
+    print(f"[DEBUG] get_active_mission_legacy: Unit {query_id} status is {amb.status}")
+
+    # 3. Handle mission data based on status
+    session = db.query(models.EmergencySession).filter(
+        models.EmergencySession.ambulance_id == query_id
+    ).order_by(models.EmergencySession.created_at.desc()).first()
+
+    if amb.status.upper() == "DISPATCHED" or (session and session.status == "DISPATCHED"):
+        return {
+            "status": "DISPATCHED",
+            "ambulance_id": query_id,
+            "location_text": amb.location,
+            "eta": amb.eta_minutes,
+            "severity": "HIGH", 
+            "precise_coords": {
                 "lat": session.patient_lat,
                 "lng": session.patient_lng,
-                "location_text": amb.location,
-                "severity": "HIGH", 
-                "precise_coords": {
-                    "lat": session.patient_lat,
-                    "lng": session.patient_lng,
-                    "accuracy": session.accuracy
-                }
-            }
+                "accuracy": session.accuracy
+            } if session else None
+        }
 
-    # Default if no mission is active
-    return {"status": "IDLE", "ambulance_id": target_id}
+
+    return {"status": amb.status, "ambulance_id": target_id}
+
+
 
 
 
 @app.get("/api/ambulance/active-mission/{ambulance_id}")
-async def get_active_mission(ambulance_id: str, db: Session = Depends(get_db)):
+async def get_active_mission_by_id(ambulance_id: str, db: Session = Depends(get_db)):
+    query_id = ambulance_id
+    if ambulance_id.startswith("AMB-DRIVER-"):
+        query_id = ambulance_id.replace("AMB-DRIVER-", "AMB-")
+        
     # 1. Get the ambulance
-    amb = db.query(models.Ambulance).filter(models.Ambulance.id == ambulance_id).first()
+    amb = db.query(models.Ambulance).filter(models.Ambulance.id == query_id).first()
     if not amb:
-        raise HTTPException(status_code=404, detail="Ambulance not found")
+        raise HTTPException(status_code=404, detail=f"Ambulance {query_id} not found")
+
     
     # 2. If dispatched, find the related emergency session for high-accuracy GPS
     session_data = None
@@ -2427,12 +2465,13 @@ def seed_db():
                 hashed_password="password123"
             ))
             
-        # 5 Ambulance Drivers (AMB-01 to AMB-05) matching Ambulance IDs
+        # 5 Ambulance Drivers matching vehicles AMB-01 to AMB-05
+        driver_names = ["Rajesh Kumar", "Suresh Pal", "Amit Singh", "Vikram Rathore", "Sanjay Dutt"]
         for i in range(1, 6):
-            staff_id = f"AMB-0{i}"
+            staff_id = f"AMB-DRIVER-0{i}"
             staff_members.append(models.Staff(
                 id=staff_id,
-                name=f"Driver {i}",
+                name=driver_names[i-1],
                 role="Ambulance",
                 is_clocked_in=True,
                 hashed_password="password123"
@@ -2440,6 +2479,7 @@ def seed_db():
 
         db.add_all(staff_members)
         db.commit()
+
     
 
 # class WeatherService:
@@ -3368,6 +3408,107 @@ async def get_revenue_analytics(
         }
     }
 
+class ReservationRequest(BaseModel):
+    patient_name: str
+    patient_age: int
+    resource_id: str  # The OT or Bed ID
+    surgeon_name: str
+    start_time: datetime
+    duration_minutes: int
+    notes: Optional[str] = None
+
+async def find_alternative_resource(db: Session, resource_type: str, start: datetime, end: datetime):
+    """
+    Looks for any resource of type 'OT' that does NOT have a 
+    confirmed reservation during the requested window.
+    """
+    # 1. Get all resources of that type (e.g., OT-01, OT-02, etc.)
+    all_resources = db.query(models.BedModel).filter(models.BedModel.type == resource_type).all()
+    
+    for res in all_resources:
+        # Check if THIS specific resource has any overlapping reservations
+        conflict = db.query(models.Reservation).filter(
+            models.Reservation.resource_id == res.id,
+            models.Reservation.start_time < end,
+            models.Reservation.end_time > start
+        ).first()
+        
+        if not conflict:
+            return res.id  # Return the first empty one found (e.g., "OT-02")
+    return None
+
+@app.post("/api/reservations/book")
+async def book_resource(request: ReservationRequest, db: Session = Depends(get_db)):
+    start_time = request.start_time
+    # End time = duration + 30 min sterilization buffer
+    end_time = start_time + timedelta(minutes=request.duration_minutes + 30)
+
+    # 1. Check for Conflict on the requested room
+    conflict = db.query(models.Reservation).filter(
+        models.Reservation.resource_id == request.resource_id,
+        models.Reservation.start_time < end_time,
+        models.Reservation.end_time > start_time
+    ).first()
+
+    if conflict:
+        # 2. Find Alternative (Swap Logic)
+        alt_id = await find_alternative_resource(db, "OT", start_time, end_time)
+        
+        # 3. WebSocket Broadcast for real-time dashboard alerts
+        await manager.broadcast({
+            "type": "RESOURCE_CONFLICT",
+            "message": f"OT Conflict: {request.resource_id} is occupied.",
+            "suggested": alt_id  # Backend sends 'suggested'
+        })
+        
+        # 4. Return 409 with the 'suggested' key for the Toaster
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, 
+            detail={
+                "msg": f"{request.resource_id} is busy. Suggesting {alt_id if alt_id else 'none'}",
+                "suggested": alt_id, # CRITICAL: Frontend looks for this key
+                "current_occupant": conflict.surgeon_name
+            }
+        )
+
+    # 5. Success Path: Create the reservation
+    new_res = models.Reservation(
+        patient_name=request.patient_name,
+        patient_age=request.patient_age,
+        resource_id=request.resource_id,
+        surgeon_name=request.surgeon_name,
+        start_time=start_time,
+        end_time=end_time,
+        notes=request.notes
+    )
+    db.add(new_res)
+    db.commit()
+    db.refresh(new_res)
+    
+    return {"status": "SUCCESS", "booking_id": new_res.id}
+
+@app.get("/api/reservations/all") 
+def get_all_reservations(db: Session = Depends(get_db)):
+    # Returns all bookings for the Timeline/Upcoming Procedures section
+    return db.query(models.Reservation).all()
+
+@app.delete("/api/reservations/cancel/{res_id}")
+async def cancel_reservation(res_id: int, db: Session = Depends(get_db)):
+    res = db.query(models.Reservation).filter(models.Reservation.id == res_id).first()
+    
+    if not res:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    
+    db.delete(res)
+    db.commit()
+    
+    # Notify frontend to refresh timeline
+    await manager.broadcast({
+        "type": "REFRESH_RESOURCES", 
+        "message": "A reservation was removed."
+    })
+    
+    return {"status": "SUCCESS", "message": f"Reservation for {res.patient_name} removed."}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -18,6 +18,9 @@ export const endpoints = {
   startCleaning: (id: string) => `${API_BASE_URL}/api/erp/beds/${id}/start-cleaning`,
   cleaningComplete: (id: string) => `${API_BASE_URL}/api/erp/beds/${id}/cleaning-complete`,
 
+  reservationsAll: `${API_BASE_URL}/api/reservations/all`,
+  bookResource: `${API_BASE_URL}/api/reservations/book`,
+  cancelReservation: (id: number) => `${API_BASE_URL}/api/reservations/cancel/${id}`,
   // Surgery Unit
   startSurgery: `${API_BASE_URL}/api/surgery/start`,
   extendSurgery: (id: string) => `${API_BASE_URL}/api/surgery/extend/${id}`,
@@ -39,6 +42,8 @@ export const endpoints = {
   predictInflow: `${API_BASE_URL}/api/predict-inflow`,
   timeToCapacity: `${API_BASE_URL}/api/metrics/latency`,
   latencyMetrics: `${API_BASE_URL}/api/metrics/latency`,
+
+ 
 
   // Events / Alerts
   events: `${API_BASE_URL}/api/events`,

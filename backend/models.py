@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, JSON, DateTime, Float, 
 from datetime import datetime
 from database import Base
 import enum
+from sqlalchemy.orm import relationship
 
 # Role-Based Access Control Enum
 class UserRole(str, enum.Enum):
@@ -323,3 +324,15 @@ class EmergencySession(Base):
     accuracy = Column(Float, nullable=True)
     status = Column(String, default="LINK_SENT") # LINK_SENT, LOCATED, DISPATCHED
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Reservation(Base):
+    __tablename__ = "reservations"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_name = Column(String, nullable=False)
+    patient_age = Column(Integer)
+    resource_id = Column(String, ForeignKey("beds.id")) # Refers to the Room/OT
+    surgeon_name = Column(String)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    status = Column(String, default="CONFIRMED") # CONFIRMED, CANCELLED, FULFILLED
+    notes = Column(String, nullable=True)
