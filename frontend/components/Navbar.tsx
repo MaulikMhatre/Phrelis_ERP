@@ -33,6 +33,7 @@ const Navbar = () => {
     { name: 'History', href: '/history', icon: Clock, roles: ['Admin'] },
     { name: 'Staff', href: '/staff', icon: Users, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck, roles: ['Admin', 'Doctor', 'Nurse'] },
+    { name: 'Billing', href: '/reception/billing', icon: DollarSign, roles: ['Admin', 'Receptionist'] },
   ];
 
   const navItemsForLimelight: NavItem[] = useMemo(() => {

@@ -9,6 +9,7 @@ class UserRole(str, enum.Enum):
     ADMIN = "Admin"
     DOCTOR = "Doctor"
     NURSE = "Nurse"
+    RECEPTIONIST = "Receptionist"
 
 
 class BedModel(Base):
@@ -336,3 +337,22 @@ class Reservation(Base):
     end_time = Column(DateTime, nullable=False)
     status = Column(String, default="CONFIRMED") # CONFIRMED, CANCELLED, FULFILLED
     notes = Column(String, nullable=True)
+
+
+
+
+
+
+class PaidBill(Base):
+    __tablename__ = "paid_bills"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    bill_no = Column(String, ForeignKey("bills.bill_no"), unique=True)
+    admission_uid = Column(String)
+    patient_name = Column(String)
+    amount_paid = Column(Float)
+    payment_method = Column(String) # e.g., "WhatsApp-UPI", "Cash", "Card"
+    transaction_id = Column(String, nullable=True)
+    contact_info = Column(String, nullable=True) # Phone or Email used
+    paid_at = Column(DateTime, default=datetime.utcnow)
+    processed_by_staff = Column(String, ForeignKey("staff.id"))

@@ -39,6 +39,13 @@ test_users = [
         'role': 'Nurse',
         'password': 'nurse123',
         'department_id': 'General'
+    },
+    {
+        'id': 'REC-01',
+        'name': 'Receptionist Alice',
+        'role': 'Receptionist',
+        'password': 'rec123',
+        'department_id': 'Front Desk'
     }
 ]
 
@@ -54,7 +61,7 @@ for user in test_users:
             SET name = ?, role = ?, department_id = ?
             WHERE id = ?
         ''', (user['name'], user['role'], user['department_id'], user['id']))
-        print(f"\n✅ Updated: {user['id']}")
+        print(f"\n[UPDATED]: {user['id']}")
     else:
         # Create new user
         hashed_password = PWD_CONTEXT.hash(user['password'])
@@ -62,7 +69,7 @@ for user in test_users:
             INSERT INTO staff (id, name, role, hashed_password, is_clocked_in, department_id)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (user['id'], user['name'], user['role'], hashed_password, False, user['department_id']))
-        print(f"\n✅ Created: {user['id']}")
+        print(f"\n[CREATED]: {user['id']}")
     
     print(f"   Name: {user['name']}")
     print(f"   Role: {user['role']}")
@@ -75,21 +82,26 @@ conn.close()
 print("\n" + "="*60)
 print("LOGIN CREDENTIALS")
 print("="*60)
-print("\n🔐 ADMIN LOGIN:")
+print("\nADMIN LOGIN:")
 print("   Staff ID: ADMIN-01")
 print("   Password: admin123")
 print("   Access: All modules + Revenue Analytics")
 
-print("\n🔐 DOCTOR LOGIN:")
+print("\nDOCTOR LOGIN:")
 print("   Staff ID: DOC-01")
 print("   Password: doctor123")
 print("   Access: Dashboard, OPD, Triage, Surgery (No Revenue)")
 
-print("\n🔐 NURSE LOGIN:")
+print("\nNURSE LOGIN:")
 print("   Staff ID: NURSE-01")
 print("   Password: nurse123")
 print("   Access: OPD, Triage, Smart Nursing (No Admin/Revenue)")
 
+print("\nRECEPTIONIST LOGIN:")
+print("   Staff ID: REC-01")
+print("   Password: rec123")
+print("   Access: Billing, Financial Desk")
+
 print("\n" + "="*60)
-print("✅ Test users created successfully!")
+print("Test users created successfully!")
 print("="*60 + "\n")

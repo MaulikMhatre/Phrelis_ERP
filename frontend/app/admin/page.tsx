@@ -1,3 +1,5 @@
+
+
 // "use client";
 // import React, { useEffect, useState, useCallback } from 'react';
 // import Link from 'next/link';
@@ -5,7 +7,7 @@
 //     BedDouble, Activity, BrainCircuit, Package,
 //     ArrowLeft, Plus, X, MapPin,
 //     Siren, LogOut, Baby, Stethoscope,
-//     ShieldAlert, HeartPulse, Timer, UserCheck
+//     ShieldAlert, HeartPulse, Timer, UserCheck, Trash2
 // } from 'lucide-react';
 // import { motion, AnimatePresence } from 'framer-motion';
 // import ResourceInventory from '@/components/ResourceInventory';
@@ -208,27 +210,32 @@
 //     const { toast } = useToast();
 //     const [beds, setBeds] = useState<any[]>([]);
 //     const [ambulances, setAmbulances] = useState<any[]>([]);
+//     const [reservations, setReservations] = useState<any[]>([]);
 //     const [loading, setLoading] = useState(true);
-    
 
 //     const [activeUnit, setActiveUnit] = useState<'ICU' | 'ER' | 'Surgery' | 'Wards'>('ICU');
 //     const [wardCategory, setWardCategory] = useState<'Medical' | 'Specialty' | 'Recovery' | 'Security'>('Medical');
 
 //     const [isModalOpen, setIsModalOpen] = useState(false);
+//     const [isReservationModalOpen, setIsReservationModalOpen] = useState(false);
 //     const [selectedBed, setSelectedBed] = useState<any | null>(null);
+//     const [resToDelete, setResToDelete] = useState<number | null>(null);
+
 //     const [patientData, setPatientData] = useState({
 //         name: '', age: '', gender: 'Male', condition: 'Stable',
 //         surgeonName: '', duration: 60,
 //         surgeryType: 'Minor', admissionUid: ''
 //     });
 
-//     const [dispatchForm, setDispatchForm] = useState({
-//         severity: 'HIGH',
-//         location: '',
-//         eta: 10,
-//         session_id: '' // Added for backend sync
+//     const [bookingData, setBookingData] = useState({
+//         patient_name: '', patient_age: '', resource_id: '',
+//         surgeon_name: '', start_time: '', duration_minutes: 60, notes: ''
 //     });
-//     const [rescueUrl, setRescueUrl] = useState<string | null>(null); // To display the generated link
+
+//     const [dispatchForm, setDispatchForm] = useState({
+//         severity: 'HIGH', location: '', eta: 10, session_id: ''
+//     });
+//     const [rescueUrl, setRescueUrl] = useState<string | null>(null); 
 //     const [dischargeBedId, setDischargeBedId] = useState<string | null>(null);
 
 //     const fetchERPData = useCallback(async () => {
@@ -242,20 +249,33 @@
 //         } catch { toast("Sync Error", "error"); setLoading(false); }
 //     }, [toast]);
 
-//     useEffect(() => { fetchERPData(); }, [fetchERPData]);
+//     const fetchReservations = useCallback(async () => {
+//         if (!token) return;
+//         try {
+//             const res = await fetch(endpoints.reservationsAll, { headers: { 'Authorization': `Bearer ${token}` } });
+//             const data = await res.json();
+//             setReservations(Array.isArray(data) ? data : []);
+//         } catch { console.error("Timeline Sync Failed"); }
+//     }, [token]);
+
+//     useEffect(() => { 
+//         fetchERPData(); 
+//         fetchReservations();
+//     }, [fetchERPData, fetchReservations]);
 
 //     useEffect(() => {
 //         const ws = new WebSocket("ws://localhost:8000/ws");
 //         ws.onmessage = (event) => {
 //             try {
 //                 const data = JSON.parse(event.data);
-//                 if (["SURGERY_UPDATE", "SURGERY_EXTENDED", "ROOM_RELEASED", "BED_UPDATE", "REFRESH_RESOURCES", "NEW_ADMISSION", "AMBULANCE_UPDATE"].includes(data.type)) {
+//                 if (["SURGERY_UPDATE", "SURGERY_EXTENDED", "ROOM_RELEASED", "BED_UPDATE", "REFRESH_RESOURCES", "NEW_ADMISSION", "AMBULANCE_UPDATE", "RESOURCE_CONFLICT"].includes(data.type)) {
 //                     fetchERPData();
+//                     fetchReservations();
 //                 }
 //             } catch { }
 //         };
 //         return () => ws.close();
-//     }, [fetchERPData]);
+//     }, [fetchERPData, fetchReservations]);
 
 //     const handleStartCleaning = async (id: string) => {
 //         await fetch(endpoints.startCleaning(id), {
@@ -264,6 +284,7 @@
 //         });
 //         fetchERPData();
 //     };
+
 //     const resetAmbulance = async (id: string) => {
 //         await fetch(endpoints.ambulanceReset(id), {
 //             method: 'POST',
@@ -274,7 +295,7 @@
 
 //     const generateRescueLink = async () => {
 //         try {
-//             const res = await fetch(endpoints.createRescueSession, { // Ensure this is in your api.ts
+//             const res = await fetch(endpoints.createRescueSession, {
 //                 method: 'POST',
 //                 headers: { 'Authorization': `Bearer ${token}` }
 //             });
@@ -282,35 +303,64 @@
 //             setRescueUrl(data.rescue_url);
 //             setDispatchForm(prev => ({ ...prev, session_id: data.session_id }));
 //             toast("Rescue Link Generated", "success");
-//         } catch {
-//             toast("Link Generation Failed", "error");
-//         }
+//         } catch { toast("Link Generation Failed", "error"); }
 //     };
 
 //     const handleDispatch = async (e: React.FormEvent) => {
-//   e.preventDefault();
-//   try {
-//     const res = await fetch(endpoints.ambulanceDispatch, {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//         'Authorization': `Bearer ${token}`
-//       },
-//       // Sending the complete form including session_id
-//       body: JSON.stringify(dispatchForm) 
-//     });
-//     const data = await res.json();
-    
-//     if (data.status === 'DISPATCHED') {
-//       toast("Unit Authorized", "success");
-//       setRescueUrl(null); // Clear link after success
-//       setDispatchForm({ severity: 'HIGH', location: '', eta: 10, session_id: '' });
-//     } else {
-//       toast(data.message || "Dispatch Failed", "error");
-//     }
-//     fetchERPData();
-//   } catch { toast("Network Error", "error"); }
-// };
+//         e.preventDefault();
+//         try {
+//             const res = await fetch(endpoints.ambulanceDispatch, {
+//                 method: 'POST',
+//                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+//                 body: JSON.stringify(dispatchForm) 
+//             });
+//             const data = await res.json();
+//             if (data.status === 'DISPATCHED') {
+//                 toast("Unit Authorized", "success");
+//                 setRescueUrl(null);
+//                 setDispatchForm({ severity: 'HIGH', location: '', eta: 10, session_id: '' });
+//             } else { toast(data.message || "Dispatch Failed", "error"); }
+//             fetchERPData();
+//         } catch { toast("Network Error", "error"); }
+//     };
+
+//     const handleBookReservation = async (e: React.FormEvent) => {
+//         e.preventDefault();
+//         try {
+//             const res = await fetch(endpoints.bookResource, {
+//                 method: 'POST',
+//                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+//                 body: JSON.stringify(bookingData)
+//             });
+//             const data = await res.json();
+//             if (res.status === 409) {
+//                 const suggestion = data.detail?.suggested;
+//                 toast(`BUSY: Suggesting ${suggestion || "Alternative"}`, "error", 7000);
+//                 if (suggestion) setBookingData(prev => ({ ...prev, resource_id: suggestion }));
+//                 return;
+//             }
+//             if (res.ok) {
+//                 toast("OT Pre-booking Confirmed", "success");
+//                 setIsReservationModalOpen(false);
+//                 fetchReservations();
+//             }
+//         } catch { toast("Booking Engine Failure", "error"); }
+//     };
+
+//     const handleCancelReservation = async () => {
+//         if (!resToDelete) return;
+//         try {
+//             const res = await fetch(endpoints.cancelReservation(resToDelete), {
+//                 method: 'DELETE',
+//                 headers: { 'Authorization': `Bearer ${token}` }
+//             });
+//             if (res.ok) {
+//                 toast("Reservation Cancelled", "success");
+//                 setResToDelete(null);
+//                 fetchReservations();
+//             }
+//         } catch { toast("Deletion Failed", "error"); }
+//     };
 
 //     const confirmDischarge = async () => {
 //         if (!dischargeBedId) return;
@@ -337,7 +387,7 @@
 //     const submitAdmission = async (e: React.FormEvent) => {
 //         e.preventDefault();
 //         const staffId = localStorage.getItem('staff_id');
-//         if (!staffId) { toast("Auth Error", "error"); return; }
+//         if (!staffId || !selectedBed) return;
 //         try {
 //             const payload: any = {
 //                 bed_id: String(selectedBed.id),
@@ -348,28 +398,16 @@
 //                 gender: patientData.gender
 //             };
 //             let res;
-//             if (selectedBed.type === 'Surgery') {
+//             if (selectedBed.type === 'Surgery' || selectedBed.type === 'OT') {
 //                 res = await fetch(endpoints.startSurgery, {
 //                     method: 'POST',
-//                     headers: {
-//                         'Content-Type': 'application/json',
-//                         'Authorization': `Bearer ${token}`
-//                     },
-//                     body: JSON.stringify({
-//                         ...payload,
-//                         surgeon_name: patientData.surgeonName,
-//                         duration_minutes: Number(patientData.duration),
-//                         surgery_type: patientData.surgeryType,
-//                         admission_uid: patientData.admissionUid || null
-//                     })
+//                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+//                     body: JSON.stringify({ ...payload, surgeon_name: patientData.surgeonName, duration_minutes: Number(patientData.duration), surgery_type: patientData.surgeryType, admission_uid: patientData.admissionUid || null })
 //                 });
 //             } else {
 //                 res = await fetch(endpoints.admit, {
 //                     method: 'POST',
-//                     headers: {
-//                         'Content-Type': 'application/json',
-//                         'Authorization': `Bearer ${token}`
-//                     },
+//                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
 //                     body: JSON.stringify(payload)
 //                 });
 //             }
@@ -428,8 +466,7 @@
 //                         </div>
 //                         <div className="flex gap-4">
 //                             <Link href="/admin/audit-logs" className="px-8 py-4 bg-card border border-border rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:border-primary transition-all flex items-center gap-2">
-//                                 <ShieldAlert size={16} className="text-primary" />
-//                                 Sentinel
+//                                 <ShieldAlert size={16} className="text-primary" /> Sentinel
 //                             </Link>
 //                             <Link href="/" className="px-8 py-4 bg-card border border-border rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:border-primary transition-all">
 //                                 Return HQ
@@ -437,177 +474,116 @@
 //                         </div>
 //                     </div>
 
-//                     {/* LAYER 1: LOGISTICS */}
+//                     {/* LAYER 1: LOGISTICS & TIMELINE */}
 //                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 shrink-0">
-//     {/* EMERGENCY DISPATCH PANEL */}
-//     <div className="bg-card rounded-[2rem] border border-rose-500/20 p-8 relative overflow-hidden group">
-//         <div className="absolute inset-0 bg-gradient-to-br from-rose-500/5 via-transparent to-transparent pointer-events-none" />
-//         <div className="relative z-10 flex justify-between items-start mb-8">
-//             <div>
-//                 <h3 className="text-2xl font-black text-foreground flex items-center gap-3 uppercase italic tracking-tighter">
-//                     <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
-//                         <Siren className={`text-rose-500 ${dispatchForm.session_id ? 'animate-pulse' : ''}`} size={24} />
-//                     </div>
-//                     EMERGENCY DISPATCH
-//                 </h3>
-//                 <p className="text-xs text-rose-500/60 font-bold uppercase tracking-[0.2em] mt-2 pl-16">
-//                     {dispatchForm.session_id ? (
-//                         <span className="text-emerald-500 flex items-center gap-2">
-//                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-//                             GPS Rescue Link Active
-//                         </span>
-//                     ) : (
-//                         "High Priority Channel"
-//                     )}
-//                 </p>
-//             </div>
-//             <div className={`w-3 h-3 rounded-full animate-ping ${dispatchForm.session_id ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-rose-500 shadow-[0_0_15px_#ef4444]'}`} />
-//         </div>
-
-//         <form onSubmit={handleDispatch} className="relative z-10 grid grid-cols-12 gap-4">
-//             {/* Triage Level */}
-//             <div className="col-span-12 xl:col-span-3">
-//                 <label className="text-[10px] font-bold text-rose-500 uppercase ml-2 mb-1 block">Triage Level</label>
-//                 <select 
-//                     className="w-full h-14 px-4 bg-muted/50 border border-border focus:border-rose-500 rounded-xl outline-none font-bold text-sm text-foreground appearance-none cursor-pointer" 
-//                     value={dispatchForm.severity} 
-//                     onChange={e => setDispatchForm({ ...dispatchForm, severity: e.target.value })}
-//                 >
-//                     <option value="HIGH">CRITICAL (RED)</option>
-//                     <option value="LOW">STABLE (YELLOW)</option>
-//                 </select>
-//             </div>
-
-//             {/* Location Input + GPS Link Generator */}
-//             <div className="col-span-12 xl:col-span-6">
-//                 <label className="text-[10px] font-bold text-slate-500 uppercase ml-2 mb-1 block tracking-widest">
-//                     Incident Location
-//                 </label>
-//                 <div className="relative flex gap-2">
-//                     <div className="relative flex-1">
-//                         <MapPin className={`absolute left-4 top-1/2 -translate-y-1/2 ${dispatchForm.session_id ? 'text-emerald-500' : 'text-slate-500'}`} size={18} />
-//                         <input 
-//                             type="text" 
-//                             placeholder={rescueUrl ? "Waiting for GPS data..." : "Enter Location..."} 
-//                             required={!dispatchForm.session_id} 
-//                             className={`w-full h-14 pl-12 pr-4 bg-muted/50 border rounded-xl text-sm font-medium text-foreground placeholder-slate-600 outline-none transition-all ${dispatchForm.session_id ? 'border-emerald-500/50 focus:border-emerald-500' : 'border-border focus:border-rose-500'}`} 
-//                             value={dispatchForm.location} 
-//                             onChange={e => setDispatchForm({ ...dispatchForm, location: e.target.value })} 
-//                         />
-//                     </div>
-                    
-//                     {/* GENERATE RESCUE LINK BUTTON */}
-//                     <button 
-//                         type="button"
-//                         onClick={generateRescueLink}
-//                         className={`px-5 rounded-xl border transition-all flex items-center justify-center group/btn ${dispatchForm.session_id ? 'bg-emerald-500/10 border-emerald-500 text-emerald-500' : 'bg-muted border-border text-slate-500 hover:border-rose-500 hover:text-rose-500'}`}
-//                         title="Generate Rescue Link"
-//                     >
-//                         <ShieldAlert size={20} className={dispatchForm.session_id ? "animate-bounce" : ""} />
-//                     </button>
-//                 </div>
-
-//                 {/* RESCUE LINK DISPLAY AREA */}
-//                 <AnimatePresence>
-//                     {rescueUrl && (
-//                         <motion.div 
-//                             initial={{ opacity: 0, height: 0 }}
-//                             animate={{ opacity: 1, height: 'auto' }}
-//                             exit={{ opacity: 0, height: 0 }}
-//                             className="mt-3 overflow-hidden"
-//                         >
-//                             <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl flex items-center gap-3">
-//                                 <div className="flex-1 overflow-hidden">
-//                                     <p className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter mb-0.5">Share with caller:</p>
-//                                     <p className="text-[10px] font-mono text-emerald-400/80 truncate select-all">{rescueUrl}</p>
+//                         <div className="bg-card rounded-[2rem] border border-rose-500/20 p-8 relative overflow-hidden group">
+//                             <div className="relative z-10 flex justify-between items-start mb-8">
+//                                 <div>
+//                                     <h3 className="text-2xl font-black text-foreground flex items-center gap-3 uppercase italic tracking-tighter">
+//                                         <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20">
+//                                             <Siren className={`text-rose-500 ${dispatchForm.session_id ? 'animate-pulse' : ''}`} size={24} />
+//                                         </div>
+//                                         EMERGENCY DISPATCH
+//                                     </h3>
+//                                     <p className="text-xs text-rose-500/60 font-bold uppercase tracking-[0.2em] mt-2 pl-16">
+//                                         {dispatchForm.session_id ? (
+//                                             <span className="text-emerald-500 flex items-center gap-2">
+//                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+//                                                 GPS Rescue Link Active
+//                                             </span>
+//                                         ) : ( "High Priority Channel" )}
+//                                     </p>
 //                                 </div>
-//                                 <button 
-//                                     type="button"
-//                                     onClick={() => {
-//                                         navigator.clipboard.writeText(rescueUrl);
-//                                         toast("Link copied to clipboard", "success");
-//                                     }}
-//                                     className="px-3 py-1.5 bg-emerald-500 text-white text-[9px] font-black uppercase rounded-lg hover:bg-emerald-400 transition-colors"
-//                                 >
-//                                     Copy
-//                                 </button>
+//                                 <div className={`w-3 h-3 rounded-full animate-ping ${dispatchForm.session_id ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-rose-500 shadow-[0_0_15px_#ef4444]'}`} />
 //                             </div>
-//                         </motion.div>
-//                     )}
-//                 </AnimatePresence>
-//             </div>
 
-//             {/* AUTHORIZE BUTTON */}
-//             <button 
-//                 type="submit" 
-//                 className={`col-span-12 xl:col-span-3 h-14 mt-auto rounded-xl font-black text-white text-xs uppercase tracking-[0.15em] transition-all active:scale-95 shadow-lg ${dispatchForm.session_id ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20' : 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/20'}`}
-//             >
-//                 {dispatchForm.session_id ? 'Authorize (GPS)' : 'Authorize Unit'}
-//             </button>
-//         </form>
-//     </div>
-
-//     {/* FLEET COMMAND PANEL */}
-//     <div className="bg-card rounded-[2rem] border border-border p-8 relative overflow-hidden">
-//         <div className="absolute inset-0 bg-[linear-gradient(currentColor_1px,transparent_1px),linear-gradient(90deg,currentColor_1px,transparent_1px)] bg-[size:40px_40px] opacity-[0.015] pointer-events-none" />
-//         <div className="relative z-10 flex justify-between items-start mb-6">
-//             <div>
-//                 <h3 className="text-2xl font-black text-foreground flex items-center gap-3 uppercase italic tracking-tighter">
-//                     <div className="p-3 bg-primary/10 rounded-xl border border-primary/20">
-//                         <Activity className="text-primary" size={24} />
-//                     </div>
-//                     FLEET COMMAND
-//                 </h3>
-//                 <p className="text-xs text-muted-foreground font-bold uppercase tracking-[0.2em] mt-2 pl-16">
-//                     <span className="text-primary font-black text-sm">
-//                         {ambulances.filter(a => a.status === 'IDLE').length}
-//                     </span> Units Active
-//                 </p>
-//             </div>
-//         </div>
-        
-//         <div className="relative z-10 flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
-//             {ambulances.map(amb => (
-//                 <div 
-//                     key={amb.id} 
-//                     className={`shrink-0 w-48 p-5 rounded-2xl border flex flex-col justify-between h-36 transition-all duration-500 ${
-//                         amb.status === 'IDLE' 
-//                         ? 'bg-muted/50 border-border hover:border-emerald-500/50' 
-//                         : 'bg-rose-500/5 border-rose-500/20 animate-in fade-in'
-//                     }`}
-//                 >
-//                     <div className="flex justify-between items-start">
-//                         <div className="flex flex-col">
-//                             <span className="font-black text-foreground text-lg tracking-tighter">{amb.id}</span>
-//                             <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border inline-block w-fit mt-1 ${
-//                                 amb.status === 'IDLE' ? 'border-emerald-500/20 text-emerald-500' : 'border-rose-500/20 text-rose-500'
-//                             }`}>
-//                                 {amb.status}
-//                             </span>
+//                             <form onSubmit={handleDispatch} className="relative z-10 grid grid-cols-12 gap-4">
+//                                 <div className="col-span-12 xl:col-span-3">
+//                                     <label className="text-[10px] font-bold text-rose-500 uppercase ml-2 mb-1 block">Triage Level</label>
+//                                     <select className="w-full h-14 px-4 bg-muted/50 border border-border focus:border-rose-500 rounded-xl outline-none font-bold text-sm text-foreground appearance-none cursor-pointer" value={dispatchForm.severity} onChange={e => setDispatchForm({ ...dispatchForm, severity: e.target.value })}>
+//                                         <option value="HIGH">CRITICAL (RED)</option>
+//                                         <option value="LOW">STABLE (YELLOW)</option>
+//                                     </select>
+//                                 </div>
+//                                 <div className="col-span-12 xl:col-span-6">
+//                                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-2 mb-1 block tracking-widest">Incident Location</label>
+//                                     <div className="relative flex gap-2">
+//                                         <div className="relative flex-1">
+//                                             <MapPin className={`absolute left-4 top-1/2 -translate-y-1/2 ${dispatchForm.session_id ? 'text-emerald-500' : 'text-slate-500'}`} size={18} />
+//                                             <input type="text" placeholder={rescueUrl ? "Waiting for GPS..." : "Enter Location..."} required={!dispatchForm.session_id} className={`w-full h-14 pl-12 pr-4 bg-muted/50 border rounded-xl text-sm font-medium text-foreground placeholder-slate-600 outline-none transition-all ${dispatchForm.session_id ? 'border-emerald-500/50' : 'border-border'}`} value={dispatchForm.location} onChange={e => setDispatchForm({ ...dispatchForm, location: e.target.value })} />
+//                                         </div>
+//                                         <button type="button" onClick={generateRescueLink} className={`px-5 rounded-xl border transition-all flex items-center justify-center ${dispatchForm.session_id ? 'bg-emerald-500/10 border-emerald-500 text-emerald-500' : 'bg-muted border-border text-slate-500'}`}><ShieldAlert size={20}/></button>
+//                                     </div>
+//                                 </div>
+//                                 <button type="submit" className={`col-span-12 xl:col-span-3 h-14 mt-auto rounded-xl font-black text-white text-xs uppercase tracking-[0.15em] shadow-lg ${dispatchForm.session_id ? 'bg-emerald-600' : 'bg-rose-600'}`}>Authorize</button>
+//                             </form>
 //                         </div>
-//                         <div className={`w-2.5 h-2.5 rounded-full ${amb.status === 'IDLE' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
-//                     </div>
-                    
-//                     <div>
-//                         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Position</p>
-//                         <div className="text-xs font-mono text-foreground truncate italic">
-//                             {amb.location || "Standby"}
+
+//                         {/* FLEET COMMAND PANEL */}
+//                         <div className="bg-card rounded-[2rem] border border-border p-8 relative overflow-hidden">
+//                             <div className="absolute inset-0 bg-[linear-gradient(currentColor_1px,transparent_1px),linear-gradient(90deg,currentColor_1px,transparent_1px)] bg-[size:40px_40px] opacity-[0.015] pointer-events-none" />
+//                             <div className="relative z-10 flex justify-between items-start mb-6">
+//                                 <div>
+//                                     <h3 className="text-2xl font-black text-foreground flex items-center gap-3 uppercase italic tracking-tighter">
+//                                         <div className="p-3 bg-primary/10 rounded-xl border border-primary/20">
+//                                             <Activity className="text-primary" size={24} />
+//                                         </div>
+//                                         FLEET COMMAND
+//                                     </h3>
+//                                     <p className="text-xs text-muted-foreground font-bold uppercase tracking-[0.2em] mt-2 pl-16"><span className="text-primary font-black text-sm">{ambulances.filter(a => a.status === 'IDLE').length}</span> Units Active</p>
+//                                 </div>
+//                             </div>
+                            
+//                             <div className="relative z-10 flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+//                                 {ambulances.map(amb => (
+//                                     <div key={amb.id} className={`shrink-0 w-48 p-5 rounded-2xl border flex flex-col justify-between h-36 transition-all duration-500 ${amb.status === 'IDLE' ? 'bg-muted/50 border-border' : 'bg-rose-500/5 border-rose-500/20 animate-in fade-in'}`}>
+//                                         <div className="flex justify-between items-start">
+//                                             <div className="flex flex-col">
+//                                                 <span className="font-black text-foreground text-lg tracking-tighter">{amb.id}</span>
+//                                                 <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border inline-block w-fit mt-1 ${amb.status === 'IDLE' ? 'border-emerald-500/20 text-emerald-500' : 'border-rose-500/20 text-rose-500'}`}>{amb.status}</span>
+//                                             </div>
+//                                             <div className={`w-2.5 h-2.5 rounded-full ${amb.status === 'IDLE' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
+//                                         </div>
+//                                         <div className="text-xs font-mono text-foreground truncate italic">{amb.location || "Standby"}</div>
+//                                         {amb.status !== 'IDLE' && (
+//                                             <button onClick={() => resetAmbulance(amb.id)} className="text-[9px] text-rose-500 font-black uppercase hover:underline text-left mt-2 flex items-center gap-1"><ArrowLeft size={10} /> Recall</button>
+//                                         )}
+//                                     </div>
+//                                 ))}
+//                             </div>
 //                         </div>
 //                     </div>
-                    
-//                     {amb.status !== 'IDLE' && (
-//                         <button 
-//                             onClick={() => resetAmbulance(amb.id)} 
-//                             className="text-[9px] text-rose-500 font-black uppercase hover:underline text-left mt-2 flex items-center gap-1"
-//                         >
-//                             <ArrowLeft size={10} /> Recall to Station
-//                         </button>
-//                     )}
-//                 </div>
-//             ))}
-//         </div>
-//     </div>
-// </div>
+
+//                     {/* UPCOMING PROCEDURES (TIMELINE) */}
+//                     <div className="bg-card rounded-[2.5rem] border border-indigo-500/20 p-8 relative overflow-hidden group shrink-0">
+//                         <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent pointer-events-none" />
+//                         <div className="relative z-10 flex justify-between items-center mb-6">
+//                             <h3 className="text-2xl font-black text-foreground flex items-center gap-3 uppercase italic tracking-tighter"><Timer className="text-indigo-500" /> UPCOMING PROCEDURES</h3>
+//                             <button onClick={() => setIsReservationModalOpen(true)} className="px-6 py-3 bg-indigo-500 text-white text-[10px] font-black uppercase rounded-2xl hover:bg-indigo-400 transition-all flex items-center gap-2"><Plus size={14} /> New Pre-Booking</button>
+//                         </div>
+//                         <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+//                             {reservations.length === 0 ? <p className="text-xs text-muted-foreground italic col-span-full py-4 px-2">No procedures scheduled.</p> : (
+//                                 reservations.map(res => (
+//                                     <div key={res.id} className="p-4 bg-muted/30 rounded-2xl border border-border flex justify-between items-center group/item hover:border-indigo-500/30 transition-all">
+//                                         <div>
+//                                             <p className="text-sm font-black text-foreground uppercase">{res.patient_name}</p>
+//                                             <div className="flex items-center gap-2 mt-1">
+//                                                 <p className="text-[10px] text-indigo-400 font-bold uppercase">{res.resource_id} • Dr. {res.surgeon_name}</p>
+//                                                 <span className="text-[8px] px-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded font-mono">{res.duration_minutes || 60}m</span>
+//                                             </div>
+//                                         </div>
+//                                         <div className="flex items-center gap-4">
+//                                             <div className="text-right">
+//                                                 <p className="text-xs font-mono text-foreground font-bold">{new Date(res.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+//                                                 <p className="text-[9px] text-slate-500 font-black uppercase">Start</p>
+//                                             </div>
+//                                             <button onClick={() => setResToDelete(res.id)} className="p-2 bg-rose-500/10 text-rose-500 rounded-lg opacity-0 group-hover/item:opacity-100 transition-all hover:bg-rose-500 hover:text-white"><Trash2 size={14} /></button>
+//                                         </div>
+//                                     </div>
+//                                 ))
+//                             )}
+//                         </div>
+//                     </div>
 
 //                     {/* LAYER 2: UNIT SWITCHER */}
 //                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
@@ -623,27 +599,18 @@
 //                         <div className="relative z-10 flex justify-between items-center mb-8">
 //                             <div>
 //                                 <h2 className="text-4xl font-black text-foreground tracking-tighter uppercase italic">{activeUnit} Grid</h2>
-//                                 <p className="text-xs text-primary font-bold uppercase tracking-[0.2em] mt-1">Live Asset Monitoring</p>
 //                             </div>
 //                             {activeUnit === 'Wards' && (
 //                                 <div className="hidden xl:flex bg-muted p-1.5 rounded-2xl border border-border shadow-inner">
 //                                     {[{ id: 'Medical', icon: HeartPulse }, { id: 'Specialty', icon: Baby }, { id: 'Recovery', icon: Stethoscope }, { id: 'Security', icon: ShieldAlert }].map(cat => (
-//                                         <button key={cat.id} onClick={() => setWardCategory(cat.id as any)} className={`px-6 py-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 ${wardCategory === cat.id ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-500 hover:text-foreground hover:bg-card'}`}><cat.icon size={14} /> {cat.id}</button>
+//                                         <button key={cat.id} onClick={() => setWardCategory(cat.id as any)} className={`px-6 py-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center gap-2 ${wardCategory === cat.id ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-foreground hover:bg-card'}`}><cat.icon size={14} /> {cat.id}</button>
 //                                     ))}
 //                                 </div>
 //                             )}
 //                         </div>
-
 //                         <div className="relative z-10">
 //                             <AnimatePresence mode="wait">
-//                                 <motion.div
-//                                     key={activeUnit + wardCategory}
-//                                     initial={{ opacity: 0, y: 20 }}
-//                                     animate={{ opacity: 1, y: 0 }}
-//                                     exit={{ opacity: 0, y: -20 }}
-//                                     transition={{ duration: 0.4 }}
-//                                     className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 gap-6"
-//                                 >
+//                                 <motion.div key={activeUnit + wardCategory} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
 //                                     {activeUnit === 'Surgery' ? (
 //                                         <div className="col-span-full"><SurgerySection beds={beds} onRefresh={fetchERPData} onAdmit={openAdmitModal} /></div>
 //                                     ) : getDisplayBeds().map(bed => (
@@ -654,93 +621,107 @@
 //                         </div>
 //                     </div>
 //                 </div>
-
 //                 <ResourceInventory />
 //             </div>
 
-//             {/* Admitting Modal */}
+//             {/* MODALS */}
 //             <AnimatePresence>
-//                 {isModalOpen && selectedBed && (
+//                 {/* DELETE RESERVATION ALERT */}
+//                 {resToDelete && (
+//                     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+//                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-background/80 backdrop-blur-xl" onClick={() => setResToDelete(null)} />
+//                          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-card rounded-[3rem] p-8 max-w-sm w-full border border-rose-500/20 relative z-10 text-center shadow-2xl">
+//                             <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6"><Trash2 size={32} className="text-rose-500" /></div>
+//                             <h2 className="text-2xl font-black text-foreground mb-2 uppercase italic tracking-tight">Abort Procedure?</h2>
+//                             <p className="text-slate-500 text-xs mb-8 font-bold uppercase tracking-widest">This will permanently remove the reservation from the system.</p>
+//                             <div className="flex gap-4">
+//                                 <button onClick={() => setResToDelete(null)} className="flex-1 py-4 bg-muted text-slate-500 font-bold uppercase rounded-2xl hover:bg-card transition-all">Go Back</button>
+//                                 <button onClick={handleCancelReservation} className="flex-1 py-4 bg-rose-600 text-white font-bold uppercase rounded-2xl shadow-lg shadow-rose-600/20 transition-all">Confirm Delete</button>
+//                             </div>
+//                         </motion.div>
+//                     </div>
+//                 )}
+
+//                 {/* PRE-BOOKING MODAL (OT) */}
+//                 {isReservationModalOpen && (
 //                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-//                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsModalOpen(false)} />
-//                         <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-card rounded-[2.5rem] p-10 max-w-xl w-full max-h-[90vh] overflow-y-auto border border-border relative z-10 custom-scrollbar shadow-2xl dark:shadow-none">
-//                             <div className="flex justify-between items-center mb-8 border-b border-border pb-6">
-//                                 <div>
-//                                     <h2 className="text-3xl font-black text-foreground tracking-tighter uppercase italic">Admit Patient</h2>
-//                                     <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Operational Protocol v4.0</p>
-//                                 </div>
-//                                 <button onClick={() => setIsModalOpen(false)} className="p-2 bg-muted rounded-full text-slate-500 hover:text-white hover:bg-red-500 transition-all"><X size={20} /></button>
-//                             </div>
-//                             <div className="p-6 bg-primary/5 rounded-2xl border border-primary/20 flex items-center justify-between mb-8 shadow-inner">
-//                                 <div>
-//                                     <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Target Asset</p>
-//                                     <p className="text-3xl font-black text-foreground">{selectedBed.id}</p>
-//                                 </div>
-//                                 <BedDouble size={36} className="text-primary opacity-30" />
-//                             </div>
-//                             <form onSubmit={submitAdmission} className="space-y-6">
+//                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsReservationModalOpen(false)} />
+//                         <motion.div className="bg-card rounded-[2.5rem] p-10 max-w-xl w-full border border-border relative z-10 shadow-2xl overflow-y-auto max-h-[90vh]">
+//                             <h2 className="text-3xl font-black text-foreground uppercase italic mb-8 border-b pb-4">OT PRE-BOOKING</h2>
+//                             <form onSubmit={handleBookReservation} className="space-y-6">
 //                                 <div className="space-y-2">
-//                                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">UID Override (Optional)</label>
-//                                     <input className="w-full p-5 bg-muted/40 border border-border focus:border-primary rounded-2xl text-foreground outline-none font-mono text-xs transition-all" placeholder="Leave blank for automatic UID" value={patientData.admissionUid} onChange={e => setPatientData({ ...patientData, admissionUid: e.target.value })} />
+//                                     <label className="text-[10px] font-black text-slate-500 uppercase ml-1 block">Patient Identity</label>
+//                                     <input required className="w-full p-5 bg-muted/40 border border-border rounded-2xl text-foreground outline-none font-bold" placeholder="Patient Name..." value={bookingData.patient_name} onChange={e => setBookingData({...bookingData, patient_name: e.target.value})} />
+//                                 </div>
+//                                 <div className="grid grid-cols-2 gap-4">
+//                                     <input type="number" required className="p-5 bg-muted/40 border border-border rounded-2xl outline-none" placeholder="Age" value={bookingData.patient_age} onChange={e => setBookingData({...bookingData, patient_age: e.target.value})} />
+//                                     <select required className="p-5 bg-muted/40 border border-border rounded-2xl text-foreground" value={bookingData.resource_id} onChange={e => setBookingData({...bookingData, resource_id: e.target.value})}>
+//                                         <option value="">Select Theater</option>
+//                                         {beds.filter(b => b.type === 'OT').map(ot => <option key={ot.id} value={ot.id}>{ot.id}</option>)}
+//                                     </select>
 //                                 </div>
 //                                 <div className="space-y-2">
-//                                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Patient Identity</label>
-//                                     <input required className="w-full p-5 bg-muted/40 border border-border focus:border-primary rounded-2xl text-foreground outline-none font-bold transition-all" placeholder="Enter Full Name..." value={patientData.name} onChange={e => setPatientData({ ...patientData, name: e.target.value })} />
-//                                 </div>
-//                                 <div className="grid grid-cols-2 gap-6">
-//                                     <div className="space-y-2">
-//                                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Age</label>
-//                                         <input type="number" required className="w-full p-5 bg-muted/40 border border-border focus:border-primary rounded-2xl text-foreground outline-none font-bold transition-all" value={patientData.age} onChange={e => setPatientData({ ...patientData, age: e.target.value })} />
-//                                     </div>
-//                                     <div className="space-y-2">
-//                                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Gender</label>
-//                                         <select className="w-full p-5 bg-muted/40 border border-border focus:border-primary rounded-2xl text-foreground outline-none font-bold transition-all appearance-none" value={patientData.gender} onChange={e => setPatientData({ ...patientData, gender: e.target.value })}><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
+//                                     <label className="text-[10px] font-black text-slate-500 uppercase ml-1 block">Duration (Minutes)</label>
+//                                     <div className="flex gap-2">
+//                                         {[30, 60, 120, 180].map((mins) => (
+//                                             <button key={mins} type="button" onClick={() => setBookingData({...bookingData, duration_minutes: mins})} className={`flex-1 py-3 rounded-xl border text-[10px] font-black transition-all ${bookingData.duration_minutes === mins ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-muted/50 border-border text-slate-500'}`}>{mins}m</button>
+//                                         ))}
+//                                         <input type="number" className="w-20 p-3 bg-muted border border-border rounded-xl text-center text-xs font-bold" placeholder="Min" value={bookingData.duration_minutes} onChange={(e) => setBookingData({...bookingData, duration_minutes: parseInt(e.target.value) || 0})} />
 //                                     </div>
 //                                 </div>
-
-//                                 {activeUnit === 'Surgery' && (
-//                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-indigo-500/5 border border-indigo-500/20 rounded-3xl animate-in zoom-in-95 duration-300">
-//                                         <div className="space-y-2">
-//                                             <label className="text-[9px] font-black text-indigo-500 uppercase tracking-widest ml-1">Category</label>
-//                                             <select className="w-full p-5 bg-card border border-border rounded-2xl text-foreground font-bold text-xs" value={patientData.surgeryType} onChange={e => setPatientData({ ...patientData, surgeryType: e.target.value })}>
-//                                                 <option value="Minor">Minor</option>
-//                                                 <option value="Intermediate">Intermediate</option>
-//                                                 <option value="Major">Major</option>
-//                                                 <option value="Specialized">Specialized</option>
-//                                             </select>
-//                                         </div>
-//                                         <div className="space-y-2">
-//                                             <label className="text-[9px] font-black text-indigo-500 uppercase tracking-widest ml-1">Surgeon</label>
-//                                             <div className="relative">
-//                                                 <Stethoscope className="absolute left-5 top-1/2 -translate-y-1/2 text-indigo-500" size={18} />
-//                                                 <input required className="w-full p-5 pl-14 bg-card border border-border rounded-2xl text-foreground font-bold text-sm" placeholder="Dr. Name..." value={patientData.surgeonName} onChange={e => setPatientData({ ...patientData, surgeonName: e.target.value })} />
-//                                             </div>
-//                                         </div>
-//                                     </div>
-//                                 )}
-
 //                                 <div className="space-y-2">
-//                                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">ESI Triage</label>
-//                                     <select className="w-full p-5 bg-muted/40 border border-border focus:border-primary rounded-2xl text-foreground outline-none font-bold transition-all appearance-none" value={patientData.condition} onChange={e => setPatientData({ ...patientData, condition: e.target.value })}><option>Stable</option><option>Critical</option><option>Observation</option><option>Pre-Surgery</option></select>
+//                                     <label className="text-[10px] font-black text-slate-500 uppercase ml-1 block">Scheduled Start</label>
+//                                     <input type="datetime-local" required className="w-full p-5 bg-muted/40 border border-border rounded-2xl text-foreground font-mono" value={bookingData.start_time} onChange={e => setBookingData({...bookingData, start_time: e.target.value})} />
 //                                 </div>
-//                                 <button type="submit" className="w-full py-5 bg-primary text-primary-foreground font-black uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-primary/20 active:scale-[0.98] transition-all">Authorize Admission</button>
+//                                 <div className="relative">
+//                                     <Stethoscope className="absolute left-5 top-1/2 -translate-y-1/2 text-indigo-500" size={18} />
+//                                     <input required className="w-full p-5 pl-14 bg-muted/40 border border-border rounded-2xl text-foreground font-bold" placeholder="Lead Surgeon Name..." value={bookingData.surgeon_name} onChange={e => setBookingData({...bookingData, surgeon_name: e.target.value})} />
+//                                 </div>
+//                                 <button type="submit" className="w-full py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl active:scale-[0.98] transition-all">Submit Reservation</button>
 //                             </form>
 //                         </motion.div>
 //                     </div>
 //                 )}
-//             </AnimatePresence>
 
-//             <AnimatePresence>
+//                 {/* ADMIT MODAL (ORIGINAL VERSION) */}
+//                 {isModalOpen && selectedBed && (
+//                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+//                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsModalOpen(false)} />
+//                         <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-card rounded-[2.5rem] p-10 max-w-xl w-full border border-border relative z-10 shadow-2xl">
+//                             <div className="flex justify-between items-center mb-8 border-b border-border pb-6">
+//                                 <h2 className="text-3xl font-black text-foreground italic uppercase">Admit to {selectedBed.id}</h2>
+//                                 <button onClick={() => setIsModalOpen(false)} className="p-2 bg-muted rounded-full text-slate-500 hover:text-white hover:bg-red-500 transition-all"><X size={20}/></button>
+//                             </div>
+//                             <form onSubmit={submitAdmission} className="space-y-6">
+//                                 <input className="w-full p-5 bg-muted/40 border border-border focus:border-primary rounded-2xl text-foreground outline-none font-mono text-xs transition-all" placeholder="UID Override (Optional)" value={patientData.admissionUid} onChange={e => setPatientData({ ...patientData, admissionUid: e.target.value })} />
+//                                 <input required className="w-full p-5 bg-muted/40 border border-border rounded-2xl font-bold" placeholder="Enter Full Name..." value={patientData.name} onChange={e => setPatientData({ ...patientData, name: e.target.value })} />
+//                                 <div className="grid grid-cols-2 gap-4">
+//                                     <input type="number" required className="p-5 bg-muted/40 border border-border rounded-2xl" placeholder="Age" value={patientData.age} onChange={e => setPatientData({ ...patientData, age: e.target.value })} />
+//                                     <select className="p-5 bg-muted/40 border border-border rounded-2xl" value={patientData.gender} onChange={e => setPatientData({ ...patientData, gender: e.target.value })}><option value="Male">Male</option><option value="Female">Female</option></select>
+//                                 </div>
+//                                 {(selectedBed.type === 'Surgery' || selectedBed.type === 'OT') && (
+//                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-indigo-500/5 border border-indigo-500/20 rounded-3xl">
+//                                         <select className="p-5 bg-card border border-border rounded-2xl" value={patientData.surgeryType} onChange={e => setPatientData({ ...patientData, surgeryType: e.target.value })}><option value="Minor">Minor</option><option value="Major">Major</option><option value="Intermediate">Intermediate</option><option value="Specialized">Specialized</option></select>
+//                                         <input required className="p-5 bg-card border border-border rounded-2xl" placeholder="Surgeon" value={patientData.surgeonName} onChange={e => setPatientData({ ...patientData, surgeonName: e.target.value })} />
+//                                     </div>
+//                                 )}
+//                                 <select className="w-full p-5 bg-muted/40 border border-border rounded-2xl font-bold appearance-none" value={patientData.condition} onChange={e => setPatientData({ ...patientData, condition: e.target.value })}><option>Stable</option><option>Critical</option><option>Observation</option><option>Pre-Surgery</option></select>
+//                                 <button type="submit" className="w-full py-5 bg-primary text-primary-foreground font-black uppercase rounded-2xl active:scale-[0.98] transition-all shadow-xl">Authorize Admission</button>
+//                             </form>
+//                         </motion.div>
+//                     </div>
+//                 )}
+
+//                 {/* DISCHARGE MODAL */}
 //                 {dischargeBedId && (
 //                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
 //                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-background/80 backdrop-blur-xl" onClick={() => setDischargeBedId(null)} />
-//                         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-card rounded-[3rem] p-8 max-w-sm w-full border border-rose-500/20 relative z-10 text-center shadow-2xl dark:shadow-none">
-//                             <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20"><LogOut size={32} className="text-rose-500" /></div>
-//                             <h2 className="text-2xl font-black text-foreground mb-2 tracking-tighter uppercase italic leading-none">Execute Finalize?</h2>
-//                             <p className="text-slate-500 text-xs mb-8 font-bold uppercase tracking-widest">Asset will be locked for Sterilization.</p>
+//                         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-card rounded-[3rem] p-8 max-w-sm w-full border border-rose-500/20 relative z-10 text-center shadow-2xl">
+//                             <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6"><LogOut size={32} className="text-rose-500" /></div>
+//                             <h2 className="text-2xl font-black mb-8 italic uppercase">Execute Finalize?</h2>
 //                             <div className="flex gap-4">
-//                                 <button onClick={() => setDischargeBedId(null)} className="flex-1 py-4 bg-muted text-slate-500 font-bold uppercase tracking-wider rounded-2xl hover:bg-card transition-all">Abort</button>
-//                                 <button onClick={confirmDischarge} className="flex-1 py-4 bg-rose-600 text-white font-bold uppercase tracking-wider rounded-2xl shadow-lg shadow-rose-600/20 transition-all">Confirm</button>
+//                                 <button onClick={() => setDischargeBedId(null)} className="flex-1 py-4 bg-muted text-slate-500 font-bold uppercase rounded-2xl hover:bg-card transition-all">Abort</button>
+//                                 <button onClick={confirmDischarge} className="flex-1 py-4 bg-rose-600 text-white font-bold uppercase rounded-2xl shadow-lg transition-all">Confirm</button>
 //                             </div>
 //                         </motion.div>
 //                     </div>
@@ -751,6 +732,23 @@
 // };
 
 // export default AdminPanel;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 "use client";
 import React, { useEffect, useState, useCallback } from 'react';
@@ -1296,7 +1294,21 @@ const AdminPanel = () => {
                                             </div>
                                             <div className={`w-2.5 h-2.5 rounded-full ${amb.status === 'IDLE' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
                                         </div>
-                                        <div className="text-xs font-mono text-foreground truncate italic">{amb.location || "Standby"}</div>
+                                        <div className="text-xs font-mono text-foreground truncate italic flex items-center gap-1.5">
+                                            <MapPin size={10} className={amb.status === 'IDLE' ? 'text-slate-500' : 'text-rose-500'} />
+                                            {amb.location ? (
+                                                <a 
+                                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(amb.location)}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="hover:text-primary hover:underline transition-all"
+                                                >
+                                                    {amb.location}
+                                                </a>
+                                            ) : (
+                                                "Standby"
+                                            )}
+                                        </div>
                                         {amb.status !== 'IDLE' && (
                                             <button onClick={() => resetAmbulance(amb.id)} className="text-[9px] text-rose-500 font-black uppercase hover:underline text-left mt-2 flex items-center gap-1"><ArrowLeft size={10} /> Recall</button>
                                         )}

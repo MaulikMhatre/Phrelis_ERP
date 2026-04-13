@@ -45,6 +45,15 @@ export const endpoints = {
 
  
 
+  // --- Receptionist & Billing (FIXED & COMPLETED) ---
+  pendingBills: `${API_BASE_URL}/api/receptionist/pending-bills`,
+  sendDigitalBill: `${API_BASE_URL}/api/receptionist/send-bill`, // Added /api
+  settlePayment: (billNo: string) => `${API_BASE_URL}/api/receptionist/settle-payment/${billNo}`, // Added /api
+  printBill: (billNo: string) => `${API_BASE_URL}/api/finance/print/${billNo}`,
+  financeLedger: `${API_BASE_URL}/api/finance/ledger`,
+  revenueAnalytics: (timeframe: string) => `${API_BASE_URL}/api/finance/revenue/analytics?timeframe=${timeframe}`,
+  getBillDetails: (admissionUid: string) => `${API_BASE_URL}/api/finance/bill/${admissionUid}`,
+
   // Events / Alerts
   events: `${API_BASE_URL}/api/events`,
   alertsActive: `${API_BASE_URL}/api/alerts/active`,

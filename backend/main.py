@@ -13,6 +13,10 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import timedelta
 from datetime import datetime
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 from typing import List, Optional
 from datetime import datetime, date
 from sqlalchemy import func
@@ -32,7 +36,7 @@ import models
 from inventory_service import InventoryService 
 from billing_service import BillingService # [NEW]
 from sqlalchemy import desc 
-from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, CurrentUser, log_audit_event # [RBAC] 
+from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, require_receptionist, CurrentUser, log_audit_event # [RBAC] 
 from fastapi import Request
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -177,6 +181,19 @@ def seed_price_master():
         
         # CONSULTATION (Just in case)
         ("CONSULTATION", "Specialist", 1500.0, 0.0, "Standard Consultation"),
+
+        # CONSUMABLES (NEW: Fixing the zero billing issue)
+        ("CONSUMABLE", "Ventilator Circuit", 2500.0, 12.0, "Critical Care Airway Circuit"),
+        ("CONSUMABLE", "Sedation Kit", 1200.0, 12.0, "ICU Sedation Protocol Items"),
+        ("CONSUMABLE", "Trauma IV Kit", 800.0, 12.0, "Emergency Infusion Supplies"),
+        ("CONSUMABLE", "Saline Pack", 150.0, 12.0, "Standard Infusion Fluid"),
+        ("CONSUMABLE", "OR Prep Kit", 1500.0, 12.0, "Surgical Site Preparation Pack"),
+        ("CONSUMABLE", "Sterile Gowns", 350.0, 12.0, "Disposable Surgical Attire"),
+        ("CONSUMABLE", "PPE Kit", 900.0, 12.0, "Medical Grade Protective Gear"),
+        ("CONSUMABLE", "Sanitization Kit", 450.0, 12.0, "Sterilization/Cleaning Supplies"),
+        ("CONSUMABLE", "Bed Linens", 300.0, 12.0, "Fresh Bedcare Supplies"),
+        ("CONSUMABLE", "Gloves", 10.0, 5.0, "Medical Nitrile Gloves (Single)"),
+        ("CONSUMABLE", "Tongue Depressor", 5.0, 5.0, "Standard Clinical Depressor"),
     ]
     
     for cat, name, price, gst, desc_text in items:
@@ -2480,70 +2497,6 @@ def seed_db():
         db.add_all(staff_members)
         db.commit()
 
-    
-
-# class WeatherService:
-#     @staticmethod
-#     async def get_weather_coefficient() -> dict:
-#         hour = datetime.now().hour
-#         temp, humidity, condition = 20, 50, "Clear"
-#         if hour < 8: temp, condition = -2, "Snow"
-#         elif 12 < hour < 16: temp, humidity = 35, 95
-#         multiplier, reason = 1.0, "Normal Conditions"
-#         if temp < 0: multiplier, reason = 1.15, f"Cold Snap ({temp}°C)"
-        
-#         return {
-#             "temp": temp, "humidity": humidity, "condition": condition,
-#             "multiplier": multiplier, "reason": reason
-#         }
-
-# @app.post("/api/predict-inflow")
-# async def predict_inflow(db: Session = Depends(get_db)):
-#     """
-#     Deterministic Neural Engine Logic: 
-#     Strict mathematical bimodal forecast.
-#     """
-#     weather = await WeatherService.get_weather_coefficient()
-#     w_mult = weather["multiplier"] 
-    
-#     occupied_count = db.query(models.BedModel).filter(models.BedModel.is_occupied == True).count()
-#     # Saturation factor based on real-time bed data
-#     saturation_factor = 1 + (occupied_count / 60) * 0.25 
-
-#     current_hour = datetime.now().hour
-#     forecast = []
-#     total_val = 0
-    
-#     # Generate 12-hour deterministic forecast
-#     for i in range(1, 13):
-#         h = (current_hour + i) % 24
-        
-
-#         morning_peak = 18 * math.exp(-((h - 10)**2) / 6) 
-#         evening_peak = 14 * math.exp(-((h - 20)**2) / 5)
-        
- 
-#         base_inflow = 4 + morning_peak + evening_peak
-        
-#         predicted_count = int(base_inflow * w_mult * saturation_factor)
-#         forecast.append({"hour": f"{h}:00", "inflow": predicted_count})
-#         total_val += predicted_count
-    
-#     peak_entry = max(forecast, key=lambda x: x["inflow"])
-#     return {
-#         "forecast": forecast,
-#         "total_predicted_inflow": total_val,
-#         "risk_level": "HIGH SURGE RISK" if total_val > 50 else "STABLE",
-#         "weather_impact": weather,
-#         "confidence_score": 95, 
-#         "factors": {
-#         "environmental": f"{round(w_mult, 2)}x",
-#         "systemic_saturation": f"{round(saturation_factor, 2)}x"
-#         }
-#     }
-
-
-
 class InflowRequest(BaseModel):
     weather_event_multiplier: bool = False
     sim_intensity: float = 1.5  # Sync with frontend default
@@ -3352,13 +3305,15 @@ async def generate_bill_pdf(bill_no: str, db: Session = Depends(get_db)):
     # Important: Format date in Python to avoid "Invalid Date" in template
     formatted_date = datetime.now().strftime("%d %b %Y").upper() 
     
-    # Example logic to get items (Replace with your actual relationship)
+    # Get patient name and bill items
+    admission = db.query(models.Admission).filter(models.Admission.admission_uid == bill_record.admission_uid).first()
+    patient_name = admission.patient_name if admission else "Unknown Patient"
     bill_items = db.query(models.BillItem).filter(models.BillItem.bill_no == bill_no).all()
 
     context = {
         "bill_no": bill_record.bill_no,
         "admission_uid": bill_record.admission_uid,
-        "patient_name": "NMAKOE", # Replace with: bill_record.admission.patient_name
+        "patient_name": patient_name,
         "items": bill_items,
         "base_amount": bill_record.total_amount,
         "tax_amount": bill_record.tax_amount,
@@ -3509,6 +3464,203 @@ async def cancel_reservation(res_id: int, db: Session = Depends(get_db)):
     })
     
     return {"status": "SUCCESS", "message": f"Reservation for {res.patient_name} removed."}
+
+
+
+
+
+
+# --- RECEPTIONIST DISPATCH & SETTLEMENT ---
+
+class BillFulfillmentRequest(BaseModel):
+    bill_no: str
+    destination: str 
+    channel: str     # "whatsapp" or "email"
+
+@app.get("/api/receptionist/pending-bills", tags=["Receptionist"])
+async def get_unpaid_bills(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_receptionist)
+):
+    """Fetch bills that have been generated but not yet settled, including patient names."""
+    results = db.query(models.Bill, models.Admission.patient_name)\
+                .join(models.Admission, models.Bill.admission_uid == models.Admission.admission_uid)\
+                .filter(models.Bill.is_paid == False).all()
+    
+    return [
+        {
+            "bill_no": b.bill_no,
+            "admission_uid": b.admission_uid,
+            "total_amount": b.total_amount,
+            "grand_total": b.grand_total,
+            "generated_at": b.generated_at,
+            "patient_name": patient_name
+        } for b, patient_name in results
+    ]
+
+@app.post("/api/receptionist/send-bill", tags=["Receptionist"])
+async def dispatch_digital_bill(request: BillFulfillmentRequest, db: Session = Depends(get_db)):
+    """Handles the digital delivery of bills via external channels, including automated PDF emailing."""
+    bill = db.query(models.Bill).filter(models.Bill.bill_no == request.bill_no).first()
+    if not bill: 
+        raise HTTPException(status_code=404, detail="Bill not found")
+
+    if request.channel == "email":
+        try:
+            # 1. Fetch Data for PDF
+            bill_items = db.query(models.BillItem).filter(models.BillItem.bill_no == bill.bill_no).all()
+            admission = db.query(models.Admission).filter(models.Admission.admission_uid == bill.admission_uid).first()
+            patient_name = admission.patient_name if admission else "Unknown Patient"
+            
+            # 2. Render Template
+            formatted_date = datetime.now().strftime("%d %b %Y").upper()
+            context = {
+                "bill_no": bill.bill_no,
+                "admission_uid": bill.admission_uid,
+                "patient_name": patient_name,
+                "items": bill_items,
+                "base_amount": bill.total_amount,
+                "tax_amount": bill.tax_amount,
+                "total_amount": bill.grand_total,
+                "date_str": formatted_date,
+                "timestamp": int(datetime.now().timestamp())
+            }
+            template = Template(BILL_HTML_TEMPLATE)
+            html_content = template.render(context)
+            
+            # 3. Generate PDF in memory
+            pdf_buffer = io.BytesIO()
+            pisa.CreatePDF(html_content, dest=pdf_buffer)
+            pdf_buffer.seek(0)
+            pdf_bytes = pdf_buffer.getvalue()
+
+            # 4. SMTP Configuration
+            mail_user = os.getenv("MAIL_USERNAME")
+            mail_pass = os.getenv("MAIL_PASSWORD")
+            if not mail_user or not mail_pass:
+                print("⚠️ MAIL_USERNAME or MAIL_PASSWORD not set in .env")
+                raise Exception("Outbound mail server not configured")
+
+            # 5. Build Email
+            message = MIMEMultipart()
+            message["From"] = f"Phrelis Billing <{mail_user}>"
+            message["To"] = request.destination
+            message["Subject"] = f"Official Invoice: {bill.bill_no} | Phrelis Hospital"
+            
+            body = f"""Dear {patient_name},
+
+Please find attached the official digital invoice ({bill.bill_no}) for your recent admission at Phrelis multispecialty.
+
+Summary:
+- Admission UID: {bill.admission_uid}
+- Total Amount: INR {bill.grand_total:,.2f}
+
+This is an automated message. For any clarification, please contact our financial desk.
+
+Regards,
+Phrelis Financial Operations
+"""
+            message.attach(MIMEText(body, "plain"))
+            
+            # 6. Attach PDF
+            part = MIMEApplication(pdf_bytes, _subtype="pdf")
+            part.add_header("Content-Disposition", "attachment", filename=f"Phrelis_Invoice_{bill.bill_no}.pdf")
+            message.attach(part)
+
+            # 7. Send
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(mail_user, mail_pass)
+                server.send_message(message)
+
+            print(f"📧 EMAIL SENT: Bill {bill.bill_no} -> {request.destination}")
+
+        except Exception as e:
+            print(f"❌ Dispatch Error: {e}")
+            raise HTTPException(status_code=500, detail=f"Mail Dispatch Failed: {str(e)}")
+
+    else:
+        # For now, we simulate other channels (WhatsApp/SMS)
+        print(f"📡 ERP DISPATCH: Bill {request.bill_no} -> {request.destination} ({request.channel})")
+    
+    return {
+        "status": "SENT", 
+        "bill_no": request.bill_no, 
+        "channel": request.channel,
+        "timestamp": datetime.utcnow()
+    }
+
+class SettlementRequest(BaseModel):
+    method: str = "CASH"
+    contact_info: Optional[str] = None
+
+@app.post("/api/receptionist/settle-payment/{bill_no}", tags=["Receptionist"])
+async def settle_bill_payment(
+    bill_no: str, 
+    request: SettlementRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_receptionist)
+):
+    """
+    Finalizes the financial lifecycle of an admission.
+    Moves data to the permanent 'paid_bills' ledger and frees the admission status.
+    """
+    # 1. Verification with Locking
+    bill = db.query(models.Bill).filter(models.Bill.bill_no == bill_no).with_for_update().first()
+    if not bill: 
+        raise HTTPException(status_code=404, detail="Bill record not found")
+    
+    if bill.is_paid:
+        raise HTTPException(status_code=400, detail="Bill is already settled")
+
+    # 2. Fetch linked Admission for metadata
+    admission = db.query(models.Admission).filter(models.Admission.admission_uid == bill.admission_uid).first()
+    patient_name = admission.patient_name if admission else "Unknown Patient"
+
+    try:
+        # 3. Update original Bill
+        bill.is_paid = True
+        bill.payment_mode = request.method
+        
+        # 4. Create Permanent Ledger Entry
+        new_payment = models.PaidBill(
+            bill_no=bill.bill_no,
+            admission_uid=bill.admission_uid,
+            patient_name=patient_name,
+            amount_paid=bill.grand_total,
+            payment_method=request.method,
+            processed_by_staff=current_user.staff_id,
+            contact_info=request.contact_info,
+            transaction_id=f"TXN-{uuid.uuid4().hex[:8].upper()}",
+            paid_at=datetime.utcnow()
+        )
+        db.add(new_payment)
+        
+        # 5. Transition Admission to SETTLED
+        if admission:
+            admission.status = "SETTLED"
+        
+        db.commit()
+
+        # 6. Real-time Broadcast to update Receptionist Dashboard
+        await manager.broadcast({
+            "type": "BILL_SETTLED", 
+            "bill_no": bill_no,
+            "patient_name": patient_name
+        })
+        
+        return {
+            "status": "SUCCESS", 
+            "message": "Ledger updated", 
+            "receipt_id": new_payment.id,
+            "transaction_id": new_payment.transaction_id
+        }
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Settlement Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Financial Engine Error")
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

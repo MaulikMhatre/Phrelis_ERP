@@ -35,6 +35,7 @@ export default function LoginPage() {
         setTimeout(() => {
           if (data.role === 'Nurse') router.push('/staff/worklist');
           else if (data.role === 'Doctor') router.push('/dashboard');
+          else if (data.role=='Receptionist')router.push('/reception/billing')
           else if (data.role === 'Ambulance') {
             // Redirect to the mobile-optimized driver interface
             router.push('/driver/dashboard');
