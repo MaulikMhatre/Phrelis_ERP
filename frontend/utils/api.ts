@@ -35,6 +35,24 @@ export const endpoints = {
     rescueStatus: (id: string) => `${API_BASE_URL}/api/rescue/status/${id}`,
     activeMission: (id: string) => `${API_BASE_URL}/api/ambulance/active-mission?ambulance_id=${id}`,
 
+  // --- BLOOD-NEXUS (Manager & NGO Portal) ---
+  bloodInventory: `${API_BASE_URL}/api/blood/inventory`,
+  bloodDonors: `${API_BASE_URL}/api/blood/donors`,
+  bloodCamps: `${API_BASE_URL}/api/blood/camps`,
+  
+  // The "Biological Gate" Actions
+  bloodVerifyTest: (bagId: string) => `${API_BASE_URL}/api/blood/verify-test/${bagId}`,
+  bloodSplit: (bagId: string) => `${API_BASE_URL}/api/blood/split/${bagId}`,
+  
+  // The Receiver Handshake
+  bloodReserve: `${API_BASE_URL}/api/blood/reserve`,
+  bloodRequests: `${API_BASE_URL}/api/blood/requests`,
+  bloodSuggest: (requestId: string) => `${API_BASE_URL}/api/blood/suggest/${requestId}`,
+  
+  // Outreach
+  bloodBroadcast: `${API_BASE_URL}/api/blood/broadcast`,
+  bloodCertificate: (donorId: string) => `${API_BASE_URL}/api/blood/certificate/${donorId}`,
+
   // Dashboard / Analytics
   dashboardStats: `${API_BASE_URL}/api/dashboard/stats`,
   insights: `${API_BASE_URL}/api/dashboard/insights`,
@@ -67,4 +85,5 @@ export const endpoints = {
   historyByDate: (date: string) => `${API_BASE_URL}/api/history/day/${date}`,
   historySurgery: `${API_BASE_URL}/api/history/surgery`,
   historyOpd: `${API_BASE_URL}/api/history/opd`,
+  historyBlood: `${API_BASE_URL}/api/history/blood`,
 };

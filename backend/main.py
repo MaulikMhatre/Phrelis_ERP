@@ -36,7 +36,8 @@ import models
 from inventory_service import InventoryService 
 from billing_service import BillingService # [NEW]
 from sqlalchemy import desc 
-from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, require_receptionist, CurrentUser, log_audit_event # [RBAC] 
+from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, require_receptionist, require_blood_manager, require_ngo_partner, CurrentUser, log_audit_event # [RBAC] 
+from blood_service import BloodService
 from fastapi import Request
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -643,6 +644,46 @@ class QueueCheckInRequest(BaseModel):
     icd_code: Optional[str] = None
     icd_rationale: Optional[str] = None
     triage_urgency: Optional[str] = None
+
+# --- BLOOD-NEXUS PYDANTIC MODELS ---
+class DonorCreate(BaseModel):
+    name: str
+    blood_group: str
+    contact_info: str
+    associated_ngo_id: Optional[str] = None
+
+class BloodCampCreate(BaseModel):
+    location: str
+    date: datetime
+    description: Optional[str] = None
+
+class BloodCampUpdate(BaseModel):
+    status: str # Approved, Completed
+    units_collected: Optional[int] = 0
+
+class BloodTestResults(BaseModel):
+    HIV: str = "pass"
+    HepB: str = "pass"
+    HepC: str = "pass"
+    Syphilis: str = "pass"
+    Malaria: str = "pass"
+
+class EmergencyAlert(BaseModel):
+    message: str
+
+class BloodRequestCreate(BaseModel):
+    patient_id: str
+    required_component: str
+    blood_group: str
+    units_needed: int = 1
+    urgency_level: str # STAT, Routine
+
+class BloodReserveRequest(BaseModel):
+    bag_id: str
+    patient_id: str
+
+class BloodDonation(BaseModel):
+    donor_id: str
 #  Admin ERP Endpoints 
 
 
@@ -1605,6 +1646,275 @@ def get_opd_history(db: Session = Depends(get_db)):
         return records
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- BLOOD-NEXUS ROUTES ---
+
+@app.get("/api/blood/inventory")
+def get_blood_inventory(db: Session = Depends(get_db)):
+    return db.query(models.BloodInventory).all()
+
+@app.post("/api/blood/verify-test/{bag_id}")
+async def verify_blood_test(bag_id: str, results: BloodTestResults, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_blood_manager)):
+    """The Biological Gate: Only clears bags if all markers are 'pass'"""
+    bag = db.query(models.BloodInventory).filter(models.BloodInventory.bag_id == bag_id).first()
+    if not bag:
+        raise HTTPException(status_code=404, detail="Bag not found")
+    
+    bag.test_results = results.dict()
+    if all(v == "pass" for v in results.dict().values()):
+        bag.status = "Available"
+        bag.is_tested = True
+    else:
+        bag.status = "Wasted" 
+    
+    db.commit()
+    await manager.broadcast({"type": "BAG_TESTED", "bag_id": bag_id, "status": bag.status})
+    return {"status": bag.status}
+
+@app.post("/api/blood/donate")
+def record_donation(donation: BloodDonation, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_blood_manager)):
+    donor = db.query(models.Donor).filter(models.Donor.id == donation.donor_id).first()
+    if not donor:
+        raise HTTPException(status_code=404, detail="Donor not found")
+    
+    new_bag = models.BloodInventory(
+        bag_id=BloodService.generate_isbt_id(),
+        donor_id=donor.id,
+        blood_group=donor.blood_group,
+        component_type="Whole Blood",
+        expiry_date=datetime.utcnow() + timedelta(days=21),
+        status="Quarantine",
+        is_tested=False
+    )
+    
+    # Update donor history
+    donor.last_donation_date = datetime.utcnow()
+    donor.total_units_donated += 1
+    
+    db.add(new_bag)
+    db.commit()
+    return new_bag
+
+@app.post("/api/blood/requests")
+def create_blood_request(req: BloodRequestCreate, db: Session = Depends(get_db)):
+    new_req = models.BloodRequest(
+        patient_id=req.patient_id,
+        required_component=req.required_component,
+        blood_group=req.blood_group,
+        units_needed=req.units_needed,
+        urgency_level=req.urgency_level
+    )
+    db.add(new_req)
+    db.commit()
+    return new_req
+
+@app.get("/api/blood/requests")
+def list_blood_requests(db: Session = Depends(get_db)):
+    return db.query(models.BloodRequest).order_by(
+        models.BloodRequest.urgency_level.desc(), # STAT first 
+        models.BloodRequest.created_at.asc()
+    ).all()
+
+@app.get("/api/blood/suggest/{request_id}")
+def suggest_blood_bag(request_id: int, db: Session = Depends(get_db)):
+    req = db.query(models.BloodRequest).filter(models.BloodRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    # [FIXED] Look up patient's actual blood group from PatientRecord.
+    # Use their real blood group to drive the compatibility-aware FEFO engine.
+    # This prevents suggesting a bag that will be rejected by the safety engine at /reserve.
+    patient = db.query(models.PatientRecord).filter(models.PatientRecord.id == req.patient_id).first()
+    patient_blood_group = patient.blood_group if patient and patient.blood_group else req.blood_group
+
+    # [FIXED] Use safety-aware FEFO: finds best unit compatible WITH the patient,
+    # not just an exact blood-group match on the request's stated group.
+    suggested = BloodService.find_compatible_fefo_unit(
+        db, patient_blood_group, req.required_component
+    )
+
+    return {
+        "request": req,
+        "suggested_bag": suggested,
+        # Debug fields — useful for the manager terminal
+        "patient_blood_group": patient_blood_group,
+        "compatible_donors": BloodService.get_compatible_donor_groups(patient_blood_group)
+    }
+
+@app.post("/api/blood/split/{bag_id}")
+async def split_blood_bag(bag_id: str, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_blood_manager)):
+    children = BloodService.split_bag(db, bag_id)
+    if not children:
+        raise HTTPException(status_code=400, detail="Invalid bag ID or not a Whole Blood bag")
+    
+    await manager.broadcast({"type": "BLOOD_SPLIT_COMPLETE", "parent_id": bag_id})
+    return {"message": "Centrifuge process complete", "children": [c.bag_id for c in children]}
+
+@app.patch("/api/blood/test/{bag_id}")
+async def update_blood_test(bag_id: str, results: BloodTestResults, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_blood_manager)):
+    bag = db.query(models.BloodInventory).filter(models.BloodInventory.bag_id == bag_id).first()
+    if not bag:
+        raise HTTPException(status_code=404, detail="Bag not found")
+    
+    bag.test_results = results.dict()
+    # If all pass, move to Available
+    if all(v == "pass" for v in results.dict().values()):
+        bag.status = "Available"
+        bag.is_tested = True
+    else:
+        bag.status = "Wasted" # Failed safety check
+    
+    db.commit()
+    return {"status": bag.status}
+
+@app.post("/api/blood/donors")
+def register_donor(donor: DonorCreate, db: Session = Depends(get_db),current_user: CurrentUser = Depends(require_ngo_partner)):
+    new_donor = models.Donor(
+        id=f"D-{uuid.uuid4().hex[:6].upper()}",
+        name=donor.name,
+        blood_group=donor.blood_group,
+        contact_info=donor.contact_info,
+        associated_ngo_id=donor.associated_ngo_id
+    )
+    db.add(new_donor)
+    db.commit()
+    return new_donor
+
+@app.get("/api/blood/donors")
+def list_donors(db: Session = Depends(get_db)):
+    return db.query(models.Donor).all()
+
+@app.post("/api/blood/camps")
+def request_camp(camp: BloodCampCreate, current_user: CurrentUser = Depends(require_ngo_partner), db: Session = Depends(get_db)):
+    new_camp = models.BloodCamp(
+        ngo_id=current_user.staff_id,
+        location=camp.location,
+        date=camp.date,
+        description=camp.description
+    )
+    db.add(new_camp)
+    db.commit()
+    return new_camp
+
+@app.get("/api/blood/camps")
+def list_camps(db: Session = Depends(get_db)):
+    return db.query(models.BloodCamp).all()
+
+@app.patch("/api/blood/camps/{camp_id}")
+async def approve_camp(camp_id: int, update: BloodCampUpdate, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_blood_manager)):
+    camp = db.query(models.BloodCamp).filter(models.BloodCamp.id == camp_id).first()
+    if not camp:
+        raise HTTPException(status_code=404, detail="Camp not found")
+    
+    camp.status = update.status
+    if update.units_collected:
+        camp.units_collected = update.units_collected
+    
+    db.commit()
+    await manager.broadcast({"type": "CAMP_STATUS_UPDATE", "camp_id": camp_id, "status": update.status})
+    return camp
+
+@app.post("/api/blood/broadcast")
+async def broadcast_alert(alert: EmergencyAlert, current_user: CurrentUser = Depends(require_blood_manager)):
+    await manager.broadcast({
+        "type": "CRITICAL_SHORTAGE",
+        "message": alert.message,
+        "sender": current_user.name
+    })
+    return {"status": "broadcasted"}
+
+@app.get("/api/blood/certificate/{donor_id}")
+def get_certificate(donor_id: str, db: Session = Depends(get_db)):
+    donor = db.query(models.Donor).filter(models.Donor.id == donor_id).first()
+    if not donor:
+        raise HTTPException(status_code=404, detail="Donor not found")
+    return BloodService.generate_donor_certificate(donor)
+
+@app.post("/api/blood/reserve")
+async def reserve_blood(request: BloodReserveRequest, db: Session = Depends(get_db)):
+    print(f"\n[DEBUG] Blood Reservation Attempt")
+    print(f"Target Bag ID: '{request.bag_id}'")
+    print(f"Target Patient ID: '{request.patient_id}'")
+    bag = db.query(models.BloodInventory).filter(models.BloodInventory.bag_id == request.bag_id).first()
+    patient = db.query(models.PatientRecord).filter(models.PatientRecord.id == request.patient_id).first()
+    
+    if not bag or not patient:
+        missing = []
+        if not bag: missing.append(f"Bag '{request.bag_id}'")
+        if not patient: missing.append(f"Patient '{request.patient_id}'")
+        
+        error_msg = f"Resource not found: {' and '.join(missing)}"
+        print(f"❌ 404 ERROR: {error_msg}")
+        raise HTTPException(status_code=404, detail="Bag or Patient not found")
+    
+    if bag.status != "Available":
+        raise HTTPException(status_code=400, detail=f"Bag {request.bag_id} is currently {bag.status}, not Available.")
+    
+    if not patient.blood_group:
+         raise HTTPException(status_code=400, detail="Patient blood group not recorded. Safety check cannot proceed.")
+
+    # Apply Safety Engine: Cross-match Guard
+    is_safe = BloodService.check_compatibility(bag.blood_group, patient.blood_group)
+    
+    if not is_safe:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"CRITICAL SAFETY BREACH: Bag {bag.blood_group} is INCOMPATIBLE with Patient {patient.blood_group}."
+        )
+    
+    # Execute Reservation
+    bag.status = "Reserved"
+    bag.assigned_patient_id = patient.id
+    bag.assigned_patient_name = patient.patient_name
+    
+    # Also fulfill the open patient request so it's removed from incoming
+    open_request = db.query(models.BloodRequest).filter(
+        models.BloodRequest.patient_id == request.patient_id,
+        models.BloodRequest.status == "OPEN"
+    ).first()
+    
+    if open_request:
+        open_request.status = "FULFILLED"
+        open_request.completed_at = datetime.utcnow()
+        open_request.assigned_bag_id = bag.bag_id
+        
+    db.commit()
+    
+    # Broadcast to clear it from manager dashboard dynamically
+    await manager.broadcast({"type": "QUEUE_UPDATE"})
+    
+    return {"message": f"Bag {bag.bag_id} successfully reserved for Patient {patient.patient_name}."}
+
+@app.get("/api/history/blood")
+def get_blood_history(db: Session = Depends(get_db)):
+    # Get all processed or used inventory
+    inventory_history = db.query(models.BloodInventory).filter(
+        models.BloodInventory.status.in_(["Reserved", "Transfused", "Processed", "Wasted"])
+    ).order_by(models.BloodInventory.created_at.desc()).all()
+    
+    # Get all fulfilled requests
+    request_history = db.query(models.BloodRequest).filter(
+        models.BloodRequest.status == "FULFILLED"
+    ).order_by(models.BloodRequest.completed_at.desc()).all()
+    
+    return {
+        "inventory": inventory_history,
+        "requests": request_history
+    }
+
+
+# Background Task for Expiry
+@app.on_event("startup")
+async def start_expiry_worker():
+    async def worker():
+        while True:
+            db = next(get_db())
+            count = BloodService.process_expiry(db)
+            if count > 0:
+                await manager.broadcast({"type": "EXPIRY_CLEANUP", "count": count})
+            await asyncio.sleep(3600) # Run every hour
+    
+    asyncio.create_task(worker())
     
 # --- OPD Triage & Queue Logic ---
 
@@ -2494,8 +2804,91 @@ def seed_db():
                 hashed_password="password123"
             ))
 
+        # [NEW] Blood Manager & NGO Partner
+        staff_members.append(models.Staff(
+            id="BM-01", name="Rahul Varma", role="BloodManager", is_clocked_in=True, hashed_password="password123"
+        ))
+        staff_members.append(models.Staff(
+            id="NGO-01", name="Red Cross Phrelis", role="NGOPartner", is_clocked_in=True, hashed_password="password123"
+        ))
+
         db.add_all(staff_members)
         db.commit()
+
+    # [NEW] Seed Donors
+    if db.query(models.Donor).count() == 0:
+        db.add_all([
+            models.Donor(id="D-101", name="John Doe", blood_group="O-", contact_info="9876543210", total_units_donated=5),
+            models.Donor(id="D-102", name="Jane Smith", blood_group="B+", contact_info="9876543211", total_units_donated=2),
+            models.Donor(id="D-103", name="Alice Brown", blood_group="AB+", contact_info="9876543212", total_units_donated=12)
+        ])
+        db.commit()
+
+    # [NEW] Seed Blood Inventory
+    if db.query(models.BloodInventory).count() == 0:
+        db.add_all([
+            models.BloodInventory(
+                bag_id="P1240001", donor_id="D-101", blood_group="O-", 
+                component_type="Whole Blood", expiry_date=datetime.utcnow() + timedelta(days=21),
+                status="Available", is_tested=True
+            ),
+            models.BloodInventory(
+                bag_id="P1240002", donor_id="D-102", blood_group="B+", 
+                component_type="Whole Blood", expiry_date=datetime.utcnow() + timedelta(days=5),
+                status="Quarantine", is_tested=False
+            ),
+            models.BloodInventory(
+                bag_id="P1240003", donor_id="D-103", blood_group="AB+", 
+                component_type="Whole Blood", expiry_date=datetime.utcnow() + timedelta(hours=36),
+                status="Available", is_tested=True
+            ),
+            # [SEED-FIX] O- pre-processed components so the FEFO engine can always find
+            # a safe unit for O- patients (e.g. P-SIM-99) without requiring a prior split.
+            models.BloodInventory(
+                bag_id="P124RBC01", donor_id="D-101", blood_group="O-",
+                component_type="RBC", expiry_date=datetime.utcnow() + timedelta(days=35),
+                status="Available", is_tested=True
+            ),
+            models.BloodInventory(
+                bag_id="P124PLS01", donor_id="D-101", blood_group="O-",
+                component_type="Plasma", expiry_date=datetime.utcnow() + timedelta(days=365),
+                status="Available", is_tested=True
+            ),
+            models.BloodInventory(
+                bag_id="P124PLT01", donor_id="D-101", blood_group="O-",
+                component_type="Platelets", expiry_date=datetime.utcnow() + timedelta(days=5),
+                status="Available", is_tested=True
+            ),
+        ])
+        db.commit()
+
+    sim_patient = db.query(models.PatientRecord).filter_by(id="P-SIM-99").first()
+    if not sim_patient:
+        print("[PHRELIS-LOG] Creating Missing Simulation Patient P-SIM-99...")
+        db.add(models.PatientRecord(
+            id="P-SIM-99", 
+            patient_name="Simulated Emergency Case", 
+            blood_group="O-" # Universal donor group for easy testing
+        ))
+        db.commit()
+        print("✅ Simulation Patient P-SIM-99 Enforced.")
+    else:
+        # Update just in case the group was changed
+        sim_patient.blood_group = "O-"
+        db.commit()
+
+    # 6. Seed Initial Blood Requests
+    if db.query(models.BloodRequest).count() == 0:
+        db.add(models.BloodRequest(
+            patient_id="P-SIM-99", 
+            required_component="Whole Blood", 
+            blood_group="O-", 
+            units_needed=1, 
+            urgency_level="STAT"
+        ))
+        db.commit()
+        print("✅ Initial Blood Requests Seeded.")
+
 
 class InflowRequest(BaseModel):
     weather_event_multiplier: bool = False

@@ -10,6 +10,9 @@ class UserRole(str, enum.Enum):
     DOCTOR = "Doctor"
     NURSE = "Nurse"
     RECEPTIONIST = "Receptionist"
+    BLOOD_MANAGER = "BloodManager"
+    NGO_PARTNER = "NGOPartner"
+    AMBULANCE = "Ambulance"
 
 
 class BedModel(Base):
@@ -88,6 +91,7 @@ class PatientRecord(Base):
     discharge_time = Column(DateTime, nullable=True)
     assigned_staff = Column(String, ForeignKey("staff.id"), nullable=True) # Added for Smart Nursing
     admission_uid = Column(String, nullable=True) # [NEW] Link to billing admission
+    blood_group = Column(String, nullable=True) # [NEW] For Blood-Nexus
 
 class Department(Base):
     __tablename__ = "departments"
@@ -356,3 +360,64 @@ class PaidBill(Base):
     contact_info = Column(String, nullable=True) # Phone or Email used
     paid_at = Column(DateTime, default=datetime.utcnow)
     processed_by_staff = Column(String, ForeignKey("staff.id"))
+
+# --- BLOOD-NEXUS MODULE MODELS ---
+
+class Donor(Base):
+    __tablename__ = "donors"
+    
+    id = Column(String, primary_key=True, index=True) # D-XXXX
+    name = Column(String)
+    blood_group = Column(String) # A+, O-, etc.
+    contact_info = Column(String)
+    associated_ngo_id = Column(String, nullable=True) # Link to NGO Staff ID or NGO Name
+    last_donation_date = Column(DateTime, nullable=True)
+    total_units_donated = Column(Integer, default=0)
+
+class BloodInventory(Base):
+    __tablename__ = "blood_inventory"
+    
+    bag_id = Column(String, primary_key=True, index=True) # ISBT-128 format
+    donor_id = Column(String, ForeignKey("donors.id"))
+    blood_group = Column(String)
+    component_type = Column(String) # Whole Blood, RBC, Platelets, Plasma
+    expiry_date = Column(DateTime)
+    status = Column(String, default="Quarantine") # Quarantine, Available, Reserved, Transfused, Wasted, Processed
+    parent_bag_id = Column(String, ForeignKey("blood_inventory.bag_id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Assignment
+    assigned_patient_id = Column(String, nullable=True)
+    assigned_patient_name = Column(String, nullable=True)
+    
+    # Safety Check Fields
+    is_tested = Column(Boolean, default=False)
+    test_results = Column(JSON, nullable=True) # {HIV: pass, HepB: pass, etc.}
+
+class BloodCamp(Base):
+    __tablename__ = "blood_camps"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ngo_id = Column(String, index=True) # Link to Staff ID of NGO Partner
+    location = Column(String)
+    date = Column(DateTime)
+    status = Column(String, default="Pending") # Pending, Approved, Completed
+    units_collected = Column(Integer, default=0)
+    description = Column(String, nullable=True)
+
+class BloodRequest(Base):
+    __tablename__ = "blood_requests"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"))
+    required_component = Column(String) # RBC, Platelets, Plasma
+    blood_group = Column(String)
+    units_needed = Column(Integer, default=1)
+    urgency_level = Column(String) # STAT, Routine
+    status = Column(String, default="OPEN") # OPEN, FULFILLED, CANCELLED
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    assigned_bag_id = Column(String, nullable=True)
+    
+    # Link to patient for easy access
+    patient = relationship("PatientRecord")

@@ -4,12 +4,12 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Clock, Search, Activity, Calendar, ArrowLeft, Filter, AlertCircle, FileText, Scissors, Microscope } from 'lucide-react';
+import { Clock, Search, Activity, Calendar, ArrowLeft, Filter, AlertCircle, FileText, Scissors, Microscope, Droplets } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { endpoints } from '@/utils/api';
 
 export default function HistoryPage() {
-  const [activeTab, setActiveTab] = useState<"CLINICAL" | "SURGERY" | "OPD">("CLINICAL");
+  const [activeTab, setActiveTab] = useState<"CLINICAL" | "SURGERY" | "OPD" | "BLOOD">("CLINICAL");
   const [history, setHistory] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,12 +24,39 @@ export default function HistoryPage() {
         let url = "";
         if (activeTab === "CLINICAL") url = endpoints.historyByDate(selectedDate);
         else if (activeTab === "SURGERY") url = endpoints.historySurgery;
-        else url = endpoints.historyOpd;
+        else if (activeTab === "OPD") url = endpoints.historyOpd;
+        else if (activeTab === "BLOOD") url = endpoints.historyBlood;
 
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) throw new Error(`Server Error ${res.status}`);
         const data = await res.json();
-        setHistory(data);
+        
+        if (activeTab === "BLOOD") {
+          const bloodItems = [
+            ...(data.inventory || []).map((b: any) => ({
+              uid: 'inv-' + b.bag_id,
+              bag_id: b.bag_id,
+              patient_info: b.assigned_patient_name || "N/A (System Level)",
+              component_type: b.component_type,
+              blood_group: b.blood_group,
+              status: b.status,
+              timestamp: b.created_at || b.expiry_date
+            })),
+            ...(data.requests || []).map((r: any) => ({
+              uid: 'req-' + r.id,
+              bag_id: r.assigned_bag_id || "N/A (Match Record)",
+              patient_info: r.patient_id,
+              component_type: r.required_component,
+              blood_group: r.blood_group,
+              status: r.status,
+              timestamp: r.completed_at || r.created_at
+            }))
+          ];
+          bloodItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setHistory(bloodItems);
+        } else {
+          setHistory(data);
+        }
       } catch (err) {
         setError("Could not connect to the medical server. Check backend status.");
       } finally {
@@ -45,9 +72,11 @@ export default function HistoryPage() {
     const condition = (item.condition || "").toLowerCase();
     const icd = (item.icd_code || "").toLowerCase();
     const id = (item.id?.toString() || "").toLowerCase();
+    const bag_id = (item.bag_id || "").toLowerCase();
+    const patient_info = (item.patient_info || "").toLowerCase();
     const search = searchTerm.toLowerCase();
 
-    return name.includes(search) || surgeon.includes(search) || condition.includes(search) || icd.includes(search) || id.includes(search);
+    return name.includes(search) || surgeon.includes(search) || condition.includes(search) || icd.includes(search) || id.includes(search) || bag_id.includes(search) || patient_info.includes(search);
   });
 
   const getUrgencyBadge = (urgency: string) => {
@@ -73,11 +102,13 @@ export default function HistoryPage() {
                 {activeTab === "CLINICAL" && <Clock className="text-primary w-6 h-6" />}
                 {activeTab === "SURGERY" && <Scissors className="text-purple-500 w-6 h-6" />}
                 {activeTab === "OPD" && <Microscope className="text-emerald-500 w-6 h-6" />}
+                {activeTab === "BLOOD" && <Droplets className="text-indigo-500 w-6 h-6" />}
               </div>
               <h1 className="text-4xl font-black tracking-tight text-foreground uppercase italic leading-none">
                 {activeTab === "CLINICAL" && "Clinical Logs"}
                 {activeTab === "SURGERY" && "Surgical Logs"}
                 {activeTab === "OPD" && "OPD History"}
+                {activeTab === "BLOOD" && "Biological Audit"}
               </h1>
             </motion.div>
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="text-muted-foreground font-medium tracking-wide pl-16 uppercase text-[10px]">
@@ -90,7 +121,8 @@ export default function HistoryPage() {
             {[
               { id: "CLINICAL", icon: <Activity size={14} />, label: "Clinical", color: "bg-primary" },
               { id: "SURGERY", icon: <Scissors size={14} />, label: "Surgery", color: "bg-purple-600" },
-              { id: "OPD", icon: <Microscope size={14} />, label: "OPD Logs", color: "bg-emerald-600" }
+              { id: "OPD", icon: <Microscope size={14} />, label: "OPD Logs", color: "bg-emerald-600" },
+              { id: "BLOOD", icon: <Droplets size={14} />, label: "Blood Nexus", color: "bg-indigo-600" }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -138,35 +170,57 @@ export default function HistoryPage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
-                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Timestamp</th>
-                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Patient Identity</th>
-                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">Admission ID</th>
-                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "CLINICAL" ? "Status" : activeTab === "SURGERY" ? "Surgeon" : "Clinical Intel"}</th>
-                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "CLINICAL" ? "Triage Level" : activeTab === "SURGERY" ? "Duration" : "AI Rationale"}</th>
-                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "CLINICAL" ? "Acuity" : activeTab === "SURGERY" ? "Overtime" : "Score"}</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "BLOOD" ? "Unit ID (Bag)" : "Timestamp"}</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "BLOOD" ? "Timestamp" : "Patient Identity"}</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "BLOOD" ? "Component & Group" : "Admission ID"}</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "CLINICAL" ? "Status" : activeTab === "SURGERY" ? "Surgeon" : activeTab === "OPD" ? "Clinical Intel" : "Patient / Ref"}</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "CLINICAL" ? "Triage Level" : activeTab === "SURGERY" ? "Duration" : activeTab === "OPD" ? "AI Rationale" : "Outcome"}</th>
+                    <th className="p-6 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-70">{activeTab === "CLINICAL" ? "Acuity" : activeTab === "SURGERY" ? "Overtime" : activeTab === "OPD" ? "Score" : ""}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredHistory.length > 0 ? (
                     filteredHistory.map((row, i) => (
-                      <motion.tr key={row.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="group hover:bg-primary/[0.02] transition-colors relative">
+                      <motion.tr key={`${activeTab}-${row.id || row.bag_id || i}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="group hover:bg-primary/[0.02] transition-colors relative">
                         <td className="p-6">
-                          <span className="font-mono text-xs font-bold text-muted-foreground">
-                            {(() => {
-                              const rawDate = row.timestamp || row.end_time || row.check_in_time;
-                              if (!rawDate) return "N/A";
-                              const dateStr = rawDate.endsWith('Z') ? rawDate : `${rawDate}Z`;
-                              const dateObj = new Date(dateStr);
-                              return isNaN(dateObj.getTime()) ? "TIME ERROR" : dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-                            })()}
-                          </span>
+                          {activeTab === "BLOOD" ? (
+                            <span className="font-mono text-sm font-black text-foreground">{row.bag_id}</span>
+                          ) : (
+                            <span className="font-mono text-xs font-bold text-muted-foreground">
+                              {(() => {
+                                const rawDate = row.timestamp || row.end_time || row.check_in_time;
+                                if (!rawDate) return "N/A";
+                                const dateStr = rawDate.endsWith('Z') ? rawDate : `${rawDate}Z`;
+                                const dateObj = new Date(dateStr);
+                                return isNaN(dateObj.getTime()) ? "TIME ERROR" : dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                              })()}
+                            </span>
+                          )}
                         </td>
                         <td className="p-6">
-                          <div className="font-black text-foreground text-lg tracking-tight uppercase">{row.patient_name || "Unknown Patient"}</div>
-                          <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mt-1 opacity-60">Age: {row.patient_age} • {row.gender || "N/A"}</div>
+                          {activeTab === "BLOOD" ? (
+                             <span className="font-mono text-xs font-bold text-muted-foreground">
+                              {(() => {
+                                const dateObj = new Date(row.timestamp + (row.timestamp.endsWith('Z') ? '' : 'Z'));
+                                return isNaN(dateObj.getTime()) ? "TIME ERROR" : dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { timeStyle: 'short' });
+                              })()}
+                            </span>
+                          ) : (
+                            <>
+                              <div className="font-black text-foreground text-lg tracking-tight uppercase">{row.patient_name || "Unknown Patient"}</div>
+                              <div className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mt-1 opacity-60">Age: {row.patient_age} • {row.gender || "N/A"}</div>
+                            </>
+                          )}
                         </td>
                         <td className="p-6">
-                          {row.admission_uid ? (
+                          {activeTab === "BLOOD" ? (
+                             <div className="flex flex-col gap-1">
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded w-fit uppercase tracking-widest border ${row.component_type === 'Whole Blood' || row.component_type === 'RBC' ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'}`}>
+                                  {row.component_type}
+                                </span>
+                                <span className="font-black text-foreground">{row.blood_group}</span>
+                             </div>
+                          ) : row.admission_uid ? (
                             <span className="font-mono text-xs text-primary font-black">{row.admission_uid}</span>
                           ) : (
                             <span className="text-muted-foreground text-xs italic opacity-30">N/A</span>
@@ -194,6 +248,9 @@ export default function HistoryPage() {
                               {getUrgencyBadge(row.triage_urgency)}
                             </div>
                           )}
+                          {activeTab === "BLOOD" && (
+                            <span className="text-xs font-mono font-bold text-muted-foreground uppercase tracking-widest">{row.patient_info}</span>
+                          )}
                         </td>
                         <td className="p-6">
                           {activeTab === "CLINICAL" && (
@@ -203,6 +260,9 @@ export default function HistoryPage() {
                           )}
                           {activeTab === "SURGERY" && <span className="text-sm font-mono font-bold text-foreground/70">{row.total_duration_minutes}m</span>}
                           {activeTab === "OPD" && <p className="text-[10px] text-muted-foreground italic leading-relaxed max-w-[200px] line-clamp-2">"{row.icd_rationale || "AI log unavailable."}"</p>}
+                          {activeTab === "BLOOD" && (
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded inline-block ${row.status === 'Wasted' ? 'bg-zinc-800 text-zinc-500' : row.status === 'Reserved' || row.status === 'FULFILLED' ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/30' : 'bg-blue-500/10 text-blue-500 border border-blue-500/30'}`}>{row.status}</span>
+                          )}
                         </td>
                         <td className="p-6">
                           {activeTab === "CLINICAL" && <span className="text-sm font-black text-muted-foreground uppercase italic">{row.acuity}</span>}

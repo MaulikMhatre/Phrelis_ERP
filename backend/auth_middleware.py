@@ -128,6 +128,8 @@ def require_role(allowed_roles: List[str]):
         HTTPException 403: If user role is not in allowed_roles
     """
     async def role_checker(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        user_role = current_user.role.lower().strip()
+        allowed_normalized = [r.lower().strip() for r in allowed_roles]
         if not current_user.has_role(allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -144,4 +146,6 @@ require_ambulance = require_role(["Ambulance"])
 require_admin_or_ambulance = require_role(["Admin", "Ambulance"])
 require_admin_or_doctor = require_role(["Admin", "Doctor"])
 require_receptionist = require_role(["Admin", "Receptionist"])
-require_any_staff = require_role(["Admin", "Doctor", "Nurse","Ambulance", "Receptionist"])
+require_blood_manager = require_role(["Admin", "BloodManager"])
+require_ngo_partner = require_role(["Admin", "NGOPartner","BloodManager"])
+require_any_staff = require_role(["Admin", "Doctor", "Nurse","Ambulance", "Receptionist", "BloodManager", "NGOPartner"])

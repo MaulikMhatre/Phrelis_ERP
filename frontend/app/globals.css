@@ -20,6 +20,12 @@
   --indigo-glow: rgba(99, 102, 241, 0.15);
   --border: #1e293b; 
   --inflow-bg: #1f0830;
+  
+  /* BLOOD-NEXUS TOKENS */
+  --blood-safe: #10b981;
+  --blood-quarantine: #f59e0b;
+  --blood-critical: #991b1b;
+  --blood-red-glow: rgba(153, 27, 27, 0.3);
 }
 
 .light {
@@ -54,6 +60,9 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --color-inflow: var(--inflow-bg);
+  --color-blood-safe: var(--blood-safe);
+  --color-blood-quarantine: var(--blood-quarantine);
+  --color-blood-critical: var(--blood-critical);
 }
 
 /* --- BASE STYLES --- */

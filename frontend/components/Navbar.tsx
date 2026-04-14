@@ -6,7 +6,7 @@ import React, { useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { 
   Activity, Shield, LogOut, LayoutDashboard, Stethoscope, 
-  LineChart, Settings, Clock, Users, ClipboardCheck, DollarSign 
+  LineChart, Settings, Clock, Users, ClipboardCheck, DollarSign, Droplets 
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { LimelightNav, NavItem } from "@/components/ui/limelight-nav";
@@ -34,6 +34,8 @@ const Navbar = () => {
     { name: 'Staff', href: '/staff', icon: Users, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Billing', href: '/reception/billing', icon: DollarSign, roles: ['Admin', 'Receptionist'] },
+    { name: 'Blood Nexus', href: '/blood-nexus/manager', icon: Droplets, roles: ['Admin', 'BloodManager'] },
+    { name: 'NGO Portal', href: '/blood-nexus/ngo', icon: Users, roles: ['Admin', 'NGOPartner','BloodManager'] },
   ];
 
   const navItemsForLimelight: NavItem[] = useMemo(() => {
@@ -53,13 +55,13 @@ const Navbar = () => {
   }, [pathname, navItemsForLimelight]);
 
   return (
-    <nav className="sticky top-0 z-50 w-full bg-background/80 dark:bg-black/90 backdrop-blur-xl text-foreground border-b border-border dark:border-white/5 transition-all duration-500">
-      <div className="max-w-[1600px] mx-auto px-8">
+    <nav className="sticky top-0 z-50 w-full bg-background/80 dark:bg-black/90 backdrop-blur-xl text-foreground border-b border-border dark:border-white/5 transition-all duration-500 px-4 md:px-6">
+      <div className="w-full">
         <div className="flex items-center justify-between h-20">
 
           {/* LEFT: Branding */}
           <div 
-            className="flex items-center gap-4 pr-8 border-r border-border dark:border-white/10 group cursor-pointer"
+            className="flex items-center gap-3 pr-4 border-r border-border dark:border-white/10 group cursor-pointer flex-shrink-0"
             onClick={() => router.push('/dashboard')}
           >
             <div className="p-2 bg-indigo-600 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.3)] group-hover:scale-105 transition-transform">
@@ -96,7 +98,7 @@ const Navbar = () => {
           </div>
 
           {/* RIGHT: Status, Toggle & Logout */}
-          <div className="flex items-center gap-6 pl-8 border-l border-border dark:border-white/10">
+          <div className="flex items-center gap-4 pl-4 border-l border-border dark:border-white/10 flex-shrink-0">
             
             {/* Theme Toggle Button */}
             <div className="hidden sm:block scale-75 transform-gpu origin-right">
