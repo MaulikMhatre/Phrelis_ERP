@@ -229,10 +229,28 @@ class BillingService:
                 "tax_amount": 0.0
             })
 
-        # 5. Create Bill Record
-        grand_total = (bed_total + bed_tax) + (surgery_total + surgery_tax) + (consumable_total + consumable_tax) + consult_total
+        # 5. Get Blood Unit Charges
+        blood_units = db.query(models.BloodInventory).filter(models.BloodInventory.assigned_admission_uid == admission_uid).all()
+        blood_total = 0.0
+        
+        for unit in blood_units:
+            # Standard blood units are typically 0% GST (Healthcare)
+            u_price = unit.price or 1500.0
+            blood_total += u_price
+            
+            bill_items.append({
+                "description": f"Blood Unit - {unit.blood_group} ({unit.bag_id})",
+                "quantity": 1,
+                "unit_price": u_price,
+                "total_price": u_price,
+                "tax_percent": 0.0,
+                "tax_amount": 0.0
+            })
+
+        # 6. Create Bill Record
+        grand_total = (bed_total + bed_tax) + (surgery_total + surgery_tax) + (consumable_total + consumable_tax) + consult_total + blood_total
         total_tax = bed_tax + surgery_tax + consumable_tax
-        pre_tax_total = bed_total + surgery_total + consumable_total + consult_total
+        pre_tax_total = bed_total + surgery_total + consumable_total + consult_total + blood_total
         
         bill_no = f"BILL-{datetime.utcnow().year}-{uuid.uuid4().hex[:6].upper()}"
         

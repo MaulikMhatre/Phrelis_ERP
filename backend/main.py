@@ -36,7 +36,7 @@ import models
 from inventory_service import InventoryService 
 from billing_service import BillingService # [NEW]
 from sqlalchemy import desc 
-from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, require_receptionist, require_blood_manager, require_ngo_partner, CurrentUser, log_audit_event # [RBAC] 
+from auth_middleware import get_current_user, require_role, require_admin,require_ambulance, require_admin_or_doctor, require_any_staff, require_receptionist, require_blood_manager, CurrentUser, log_audit_event # [RBAC] 
 from blood_service import BloodService
 from fastapi import Request
 
@@ -244,6 +244,17 @@ seed_price_master()
 
 app = FastAPI(title="PHRELIS Hospital OS")
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"❌ VALIDATION ERROR at {request.url.path}: {exc.errors()}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors(), "body": exc.body},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -439,6 +450,7 @@ class MedicalAgent:
     "3. ESI 3: Stable, requires multiple resources (Labs + IV + Imaging).\n"
     "4. ESI 4: Stable, requires one resource (e.g., simple X-ray, sutures).\n"
     "5. ESI 5: Stable, requires zero resources (e.g., prescription refill).\n\n"
+     " DO NOT skip any fields."
 
     "### CLINICAL CORRELATION LOGIC:\n"
     "Analyze symptoms for underlying nutritional or systemic deficiencies:\n"
@@ -507,15 +519,30 @@ class MedicalAgent:
                 triage_urgency=fallback["urgency"]
             )
 
+        # system_prompt = (
+        #     "You are the Phrelis OS Clinical Intelligence Core, a high-precision medical classification engine. "
+        #     "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\n\n"
+        #     "OPERATIONAL LOGIC:\n"
+        #     "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\n"
+        #     "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\n"
+        #     "3. Specificity Rule: Provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\n\n"
+        #     "Return a JSON object following the ICDClassification schema accurately."
+        # )
+
         system_prompt = (
-            "You are the Phrelis OS Clinical Intelligence Core, a high-precision medical classification engine. "
-            "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\n\n"
-            "OPERATIONAL LOGIC:\n"
-            "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\n"
-            "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\n"
-            "3. Specificity Rule: Provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\n\n"
-            "Return a JSON object following the ICDClassification schema accurately."
-        )
+    "## ROLE: Phrelis OS Clinical Intelligence Core (ICD-10-CM 2026)\n"
+    "## TASK: Map unstructured patient data to structured ICD-10 codes for triage.\n\n"
+    
+    "## OPERATIONAL LOGIC:\n"
+    "- PRIMARY: Map anatomical system (I: Circulatory, J: Respiratory, G: Nervous).\n"
+    "- ACUITY: Keyword-driven (sudden/sharp/crushing/severe) -> Prioritize Acute codes.\n"
+    "- SPECIFICITY: Use 3-5 character alphanumeric codes (e.g., I21.9).\n"
+    "- SAFETY: If ambiguous, select highest urgency code for anatomy.\n\n"
+
+    "## CONSTRAINT:\n"
+    "- Respond ONLY with JSON strictly following the ICDClassification schema.\n"
+    "- No preamble. No markdown outside the JSON."
+)
         
         user_input = f"Primary Complaint: {complaint}. Supporting Symptoms: {symptoms}."
         
@@ -584,11 +611,13 @@ class AdmissionRequest(BaseModel):
     gender: str
     condition: str
     staff_id: str
+    patient_blood_group: Optional[str] = None
 
 class TriageRequest(BaseModel):
     patient_name: str
     patient_age: int
     gender: str
+    blood_group: Optional[str] = None
     symptoms: List[str]
     vitals: Optional[dict] = {}
 
@@ -629,6 +658,7 @@ class SurgeryStartRequest(BaseModel):
     surgery_type: str # [NEW] e.g., "Minor", "Intermediate", "Major", "Complex"
     duration_minutes: int
     admission_uid: Optional[str] = None # [NEW] Link to existing stay if any
+    patient_blood_group: Optional[str] = None
 
 class SurgeryExtendRequest(BaseModel):
     additional_minutes: int
@@ -650,7 +680,6 @@ class DonorCreate(BaseModel):
     name: str
     blood_group: str
     contact_info: str
-    associated_ngo_id: Optional[str] = None
 
 class BloodCampCreate(BaseModel):
     location: str
@@ -681,6 +710,10 @@ class BloodRequestCreate(BaseModel):
 class BloodReserveRequest(BaseModel):
     bag_id: str
     patient_id: str
+
+class BloodBedAssignmentRequest(BaseModel):
+    bag_id: str
+    admission_uid: Optional[str] = None
 
 class BloodDonation(BaseModel):
     donor_id: str
@@ -1044,6 +1077,7 @@ async def admit_patient(
     bed.is_occupied = True
     bed.patient_name = request.patient_name
     bed.condition = request.condition
+    bed.patient_blood_group = request.patient_blood_group
     bed.status = "OCCUPIED" 
     bed.admission_time = datetime.utcnow() # Track for IST normalization
     bed.admission_uid = None # Will be set below
@@ -1081,6 +1115,7 @@ async def admit_patient(
         patient_name=request.patient_name,
         patient_age=request.patient_age,
         condition=request.condition,
+        blood_group=request.patient_blood_group,
         assigned_staff=request.staff_id,
         admission_uid=new_admission_uid # [NEW]
     )
@@ -1090,9 +1125,14 @@ async def admit_patient(
         bed_id=request.bed_id,
         patient_name=request.patient_name,
         patient_age=request.patient_age,
+        patient_blood_group=request.patient_blood_group,
         status="ACTIVE",
         created_by_uid=current_user.staff_id  # [RBAC] Track who created the admission
     )
+    
+    # Update Bed metadata
+    bed.admission_uid = new_admission_uid
+    bed.patient_blood_group = request.patient_blood_group # Sync blood
     
     try:
         db.add(new_record)
@@ -1278,6 +1318,7 @@ async def start_surgery(
     bed.patient_age = request.patient_age
     bed.admission_time = now
     bed.surgery_type = request.surgery_type # [NEW]
+    bed.patient_blood_group = request.patient_blood_group # [BLOOD-NEXUS]
     
     # [NEW] Handle Admission UID - either provided from existing stay or generated fresh
     target_uid = request.admission_uid
@@ -1291,6 +1332,7 @@ async def start_surgery(
             bed_id=request.bed_id,
             patient_name=request.patient_name,
             patient_age=request.patient_age,
+            patient_blood_group=request.patient_blood_group,
             status="ACTIVE",
             created_by_uid=current_user.staff_id  # [RBAC] Track who initiated surgery
         )
@@ -1527,6 +1569,7 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         esi_level=level,
         acuity=bed_type,
         gender=request.gender, # Audit trail
+        blood_group=request.blood_group,
         symptoms=request.symptoms,
         timestamp=datetime.utcnow(),
         patient_name=request.patient_name, 
@@ -1543,18 +1586,23 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
         bed.is_occupied = True
         bed.status = "OCCUPIED"
         bed.patient_name = request.patient_name
+        bed.patient_blood_group = request.blood_group
         bed.condition = new_record.condition
         bed.ventilator_in_use = ventilator_needed
         assigned_id = bed.id
         
-        # [NEW] Create Financial Admission Record for Triage
+        # [NEW] Link admission to bed
         new_admission_uid = f"ADM-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+        bed.admission_uid = new_admission_uid
+        
+        # [NEW] Create Financial Admission Record for Triage
         new_admission = models.Admission(
             admission_uid=new_admission_uid,
             patient_id=new_patient_id,
             bed_id=bed.id,
             patient_name=request.patient_name,
             patient_age=request.patient_age,
+            patient_blood_group=request.blood_group,
             status="ACTIVE"
         )
         db.add(new_admission)
@@ -1568,7 +1616,9 @@ async def assess_patient(request: TriageRequest, db: Session = Depends(get_db)):
     await manager.broadcast({
         "type": "NEW_ADMISSION", 
         "bed_id": assigned_id,
+        "admission_uid": new_admission_uid,
         "patient_gender": request.gender,
+        "patient_blood_group": request.blood_group,
         "is_critical": level <= 2
     })
 
@@ -1768,13 +1818,12 @@ async def update_blood_test(bag_id: str, results: BloodTestResults, db: Session 
     return {"status": bag.status}
 
 @app.post("/api/blood/donors")
-def register_donor(donor: DonorCreate, db: Session = Depends(get_db),current_user: CurrentUser = Depends(require_ngo_partner)):
+def register_donor(donor: DonorCreate, db: Session = Depends(get_db), current_user: CurrentUser = Depends(require_blood_manager)):
     new_donor = models.Donor(
         id=f"D-{uuid.uuid4().hex[:6].upper()}",
         name=donor.name,
         blood_group=donor.blood_group,
-        contact_info=donor.contact_info,
-        associated_ngo_id=donor.associated_ngo_id
+        contact_info=donor.contact_info
     )
     db.add(new_donor)
     db.commit()
@@ -1785,7 +1834,7 @@ def list_donors(db: Session = Depends(get_db)):
     return db.query(models.Donor).all()
 
 @app.post("/api/blood/camps")
-def request_camp(camp: BloodCampCreate, current_user: CurrentUser = Depends(require_ngo_partner), db: Session = Depends(get_db)):
+def request_camp(camp: BloodCampCreate, current_user: CurrentUser = Depends(require_blood_manager), db: Session = Depends(get_db)):
     new_camp = models.BloodCamp(
         ngo_id=current_user.staff_id,
         location=camp.location,
@@ -1884,6 +1933,74 @@ async def reserve_blood(request: BloodReserveRequest, db: Session = Depends(get_
     await manager.broadcast({"type": "QUEUE_UPDATE"})
     
     return {"message": f"Bag {bag.bag_id} successfully reserved for Patient {patient.patient_name}."}
+
+@app.post("/api/blood/assign-to-bed")
+async def assign_blood_to_bed(request: BloodBedAssignmentRequest, db: Session = Depends(get_db)):
+    if not request.admission_uid:
+        # Debug helper: Try to find the bed by bag if we have to, but better just show info
+        print(f"DEBUG: Blood assignment failed - missing admission_uid for bag {request.bag_id}")
+        raise HTTPException(status_code=400, detail="Financial context (Admission UID) is missing for this bed. This usually affects legacy data from before the sync update. Please refresh or re-admit.")
+        
+    bag = db.query(models.BloodInventory).filter(models.BloodInventory.bag_id == request.bag_id).first()
+    admission = db.query(models.Admission).filter(models.Admission.admission_uid == request.admission_uid).first()
+    
+    if not bag or not admission:
+        raise HTTPException(status_code=404, detail="Bag or Admission record not found.")
+        
+    if admission.status != "ACTIVE":
+        raise HTTPException(status_code=400, detail="Cannot assign blood to a discharged or inactive admission.")
+        
+    patient = db.query(models.PatientRecord).filter(models.PatientRecord.id == admission.patient_id).first()
+    
+    # 1. Safety Check
+    if not BloodService.check_compatibility(bag.blood_group, patient.blood_group):
+        raise HTTPException(status_code=403, detail=f"Incompatible blood group! Bag: {bag.blood_group}, Patient: {patient.blood_group}")
+    
+    # 2. Update Inventory
+    bag.status = "Reserved"
+    bag.assigned_admission_uid = admission.admission_uid
+    bag.assigned_patient_id = patient.id
+    bag.assigned_patient_name = patient.patient_name
+    bag.assigned_at = datetime.utcnow()
+    
+    # 3. Add to Billing
+    bill = db.query(models.Bill).filter(models.Bill.admission_uid == admission.admission_uid, models.Bill.is_paid == False).first()
+    if bill:
+        # Create Bill Item
+        item_desc = f"Blood Unit - {bag.blood_group} ({bag.bag_id})"
+        bill_item = models.BillItem(
+            bill_no=bill.bill_no,
+            description=item_desc,
+            quantity=1,
+            unit_price=bag.price or 1500,
+            total_price=bag.price or 1500,
+            tax_percent=0, # Medical blood units are often tax-exempt in typical simulation contexts
+            tax_amount=0
+        )
+        db.add(bill_item)
+        
+        # Update Bill Totals
+        bill.total_amount += bill_item.total_price
+        bill.grand_total += bill_item.total_price
+    
+    db.commit()
+    
+    # 4. Broadcast to Manager
+    await manager.broadcast({
+        "type": "QUEUE_UPDATE", 
+        "message": f"Blood Bag {bag.bag_id} assigned to {admission.bed_id}",
+        "admission_id": admission.admission_uid
+    })
+    
+    return {"message": "Blood allocated and billed successfully."}
+
+@app.get("/api/blood/compatible-donors/{patient_group}")
+def get_compatible_donors(patient_group: str):
+    """
+    Returns a list of donor groups compatible with the specified patient blood group.
+    """
+    normalized_group = patient_group.strip().upper()
+    return BloodService.get_compatible_donor_groups(normalized_group)
 
 @app.get("/api/history/blood")
 def get_blood_history(db: Session = Depends(get_db)):

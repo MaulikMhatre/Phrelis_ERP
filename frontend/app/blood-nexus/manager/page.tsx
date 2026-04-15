@@ -22,8 +22,10 @@ import {
   User,
   Heart,
   Plus,
-  Stethoscope
+  Stethoscope,
+  Users
 } from "lucide-react"
+import Link from "next/link"
 
 
 // --- Types ---
@@ -62,6 +64,13 @@ export default function BloodManagerDashboard() {
   const [showDonateForm, setShowDonateForm] = useState(false)
   const [showRequestForm, setShowRequestForm] = useState(false)
   const [donorIdInput, setDonorIdInput] = useState("")
+  const [verificationResults, setVerificationResults] = useState<Record<string, string>>({
+    HIV: "pass",
+    HepB: "pass",
+    HepC: "pass",
+    Syphilis: "pass",
+    Malaria: "pass"
+  })
   
   // Simulation Form State
   const [simReq, setSimReq] = useState({ patient_id: "P-SIM-99", component: "RBC", group: "O-", urgency: "STAT" })
@@ -86,6 +95,18 @@ export default function BloodManagerDashboard() {
       ws.close()
     }
   }, [])
+
+  useEffect(() => {
+    if (selectedBag) {
+      setVerificationResults({
+        HIV: "pass",
+        HepB: "pass",
+        HepC: "pass",
+        Syphilis: "pass",
+        Malaria: "pass"
+      })
+    }
+  }, [selectedBag])
 
   const fetchData = async () => {
     try {
@@ -142,7 +163,7 @@ export default function BloodManagerDashboard() {
         setShowDonateForm(false)
         fetchData()
       } else {
-        alert("Donor ID not found. Ensure donor is registered via NGO portal.")
+        alert("Donor ID not found. Ensure donor is registered in the Donor Registry.")
       }
     } catch (e) {
       console.error(e)
@@ -255,10 +276,16 @@ export default function BloodManagerDashboard() {
           </button>
           <button 
             onClick={() => setShowDonateForm(true)}
-            className="bg-blood-safe hover:bg-emerald-600 text-black px-6 py-3 rounded-xl font-black flex items-center gap-2 transition-all uppercase tracking-widest text-xs"
+            className="bg-white/5 hover:bg-white/10 border border-white/10 text-white/50 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all uppercase tracking-widest text-[10px]"
           >
-            <Plus className="w-5 h-5" /> Register Donation
+            <Plus className="w-4 h-4" /> Quick Donation
           </button>
+          <Link 
+            href="/blood-nexus/donors"
+            className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-black flex items-center gap-2 transition-all uppercase tracking-widest text-xs"
+          >
+            <Users className="w-5 h-5" /> Donor Registry
+          </Link>
         </div>
       </div>
 
@@ -542,22 +569,46 @@ export default function BloodManagerDashboard() {
                 </div>
 
                 <div className="space-y-3 mb-8">
-                  {["HIV", "Hep-B", "Hep-C", "Syphilis", "Malaria"].map(test => (
-                    <div key={test} className="flex justify-between items-center p-3 bg-black/40 rounded-xl border border-white/5">
-                      <span className="text-xs font-black text-white/60">{test} MARKER</span>
+                  {[
+                    { id: "HIV", label: "HIV" },
+                    { id: "HepB", label: "Hep-B" },
+                    { id: "HepC", label: "Hep-C" },
+                    { id: "Syphilis", label: "Syphilis" },
+                    { id: "Malaria", label: "Malaria" }
+                  ].map(test => (
+                    <div key={test.id} className="flex justify-between items-center p-3 bg-black/40 rounded-xl border border-white/5">
+                      <span className="text-xs font-black text-white/60">{test.label} MARKER</span>
                       <div className="flex gap-2">
-                         <button className="w-8 h-8 rounded-lg bg-blood-safe/20 text-blood-safe flex items-center justify-center hover:bg-blood-safe hover:text-black transition-all"><CheckCircle2 className="w-4 h-4" /></button>
-                         <button className="w-8 h-8 rounded-lg bg-white/5 text-white/20 flex items-center justify-center hover:bg-blood-critical transition-all"><XCircle className="w-4 h-4" /></button>
+                         <button 
+                           onClick={() => setVerificationResults(prev => ({ ...prev, [test.id]: 'pass' }))}
+                           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                             verificationResults[test.id] === 'pass' 
+                             ? 'bg-blood-safe text-black shadow-lg shadow-blood-safe/20' 
+                             : 'bg-white/5 text-white/20 hover:bg-blood-safe/20 hover:text-blood-safe'
+                           }`}
+                         >
+                           <CheckCircle2 className="w-4 h-4" />
+                         </button>
+                         <button 
+                           onClick={() => setVerificationResults(prev => ({ ...prev, [test.id]: 'fail' }))}
+                           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                             verificationResults[test.id] === 'fail' 
+                             ? 'bg-blood-critical text-white shadow-lg shadow-blood-critical/20' 
+                             : 'bg-white/5 text-white/20 hover:bg-blood-critical/20 hover:text-blood-critical'
+                           }`}
+                         >
+                           <XCircle className="w-4 h-4" />
+                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
 
                 <button 
-                  onClick={() => handleVerifyTest(selectedBag.bag_id, { HIV: 'pass', HepB: 'pass', HepC: 'pass', Syphilis: 'pass', Malaria: 'pass' })}
+                  onClick={() => handleVerifyTest(selectedBag.bag_id, verificationResults)}
                   className="w-full py-4 bg-blood-quarantine hover:bg-amber-600 text-black font-black rounded-2xl text-xs uppercase tracking-widest transition-all shadow-xl shadow-amber-600/20"
                 >
-                  Confirm Clearance
+                  {Object.values(verificationResults).every(v => v === 'pass') ? 'Confirm Clearance' : 'Mark as Wasted'}
                 </button>
               </motion.div>
             )}

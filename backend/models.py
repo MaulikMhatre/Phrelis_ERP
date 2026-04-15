@@ -28,6 +28,7 @@ class BedModel(Base):
     patient_name = Column(String, nullable=True)
     patient_age = Column(Integer, nullable=True)
     condition = Column(String, nullable=True)
+    patient_blood_group = Column(String, nullable=True) # [BLOOD-NEXUS] Linkage
     surgeon_name = Column(String, nullable=True)
     
     # Snapshot of vitals at time of admission
@@ -253,7 +254,11 @@ class Admission(Base):
     # Snapshot of patient details at admission for immutable record
     patient_name = Column(String)
     patient_age = Column(Integer)
+    patient_blood_group = Column(String, nullable=True) # [BLOOD-NEXUS]
     created_by_uid = Column(String, nullable=True) # [RBAC] Track staff who created admission
+    
+    # Blood Nexus Integration
+    blood_units = relationship("BloodInventory", backref="admission")
     
 class SurgeryLog(Base):
     __tablename__ = "surgery_logs"
@@ -385,10 +390,14 @@ class BloodInventory(Base):
     status = Column(String, default="Quarantine") # Quarantine, Available, Reserved, Transfused, Wasted, Processed
     parent_bag_id = Column(String, ForeignKey("blood_inventory.bag_id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    assigned_at = Column(DateTime, nullable=True)
     
     # Assignment
     assigned_patient_id = Column(String, nullable=True)
     assigned_patient_name = Column(String, nullable=True)
+    assigned_admission_uid = Column(String, ForeignKey("admissions.admission_uid"), nullable=True)
+    
+    price = Column(Integer, default=1500)
     
     # Safety Check Fields
     is_tested = Column(Boolean, default=False)

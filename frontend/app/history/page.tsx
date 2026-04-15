@@ -40,7 +40,7 @@ export default function HistoryPage() {
               component_type: b.component_type,
               blood_group: b.blood_group,
               status: b.status,
-              timestamp: b.created_at || b.expiry_date
+              timestamp: b.assigned_at || b.created_at || b.expiry_date
             })),
             ...(data.requests || []).map((r: any) => ({
               uid: 'req-' + r.id,
@@ -181,7 +181,7 @@ export default function HistoryPage() {
                 <tbody className="divide-y divide-border">
                   {filteredHistory.length > 0 ? (
                     filteredHistory.map((row, i) => (
-                      <motion.tr key={`${activeTab}-${row.id || row.bag_id || i}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="group hover:bg-primary/[0.02] transition-colors relative">
+                      <motion.tr key={`${activeTab}-${row.id || row.bag_id || ''}-${i}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="group hover:bg-primary/[0.02] transition-colors relative">
                         <td className="p-6">
                           {activeTab === "BLOOD" ? (
                             <span className="font-mono text-sm font-black text-foreground">{row.bag_id}</span>
@@ -201,7 +201,10 @@ export default function HistoryPage() {
                           {activeTab === "BLOOD" ? (
                              <span className="font-mono text-xs font-bold text-muted-foreground">
                               {(() => {
-                                const dateObj = new Date(row.timestamp + (row.timestamp.endsWith('Z') ? '' : 'Z'));
+                                const rawDate = row.timestamp;
+                                if (!rawDate) return "N/A";
+                                const dateStr = rawDate.endsWith('Z') ? rawDate : `${rawDate}Z`;
+                                const dateObj = new Date(dateStr);
                                 return isNaN(dateObj.getTime()) ? "TIME ERROR" : dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { timeStyle: 'short' });
                               })()}
                             </span>

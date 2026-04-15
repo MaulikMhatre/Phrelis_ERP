@@ -25,17 +25,18 @@ const Navbar = () => {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['Admin'] },
     { name: 'Analytics', href: '/predictions', icon: LineChart, roles: ['Admin'] },
     { name: 'Revenue', href: '/admin/revenue', icon: DollarSign, roles: ['Admin'] },
-    { name: 'Audit-Log', href: '/admin/audit-logs', icon: DollarSign, roles: ['Admin'] },
+    { name: 'Billing', href: '/reception/billing', icon: DollarSign, roles: ['Admin', 'Receptionist'] },
     { name: 'OPD', href: '/queue', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Triage', href: '/triage', icon: Stethoscope, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Admin', href: '/admin', icon: Settings, roles: ['Admin', 'Doctor'] },
     { name: 'Radiology', href: '/radiology', icon: Clock, roles: ['Admin','Doctor','Nurse'] },
+    { name: 'Audit-Log', href: '/admin/audit-logs', icon: DollarSign, roles: ['Admin'] },
+    { name: 'Blood Bank', href: '/blood-nexus/manager', icon: Droplets, roles: ['Admin', 'BloodManager'] },
+    { name: 'Donor Registry', href: '/blood-nexus/donors', icon: Users, roles: ['Admin', 'BloodManager'] },
     { name: 'History', href: '/history', icon: Clock, roles: ['Admin'] },
     { name: 'Staff', href: '/staff', icon: Users, roles: ['Admin', 'Doctor', 'Nurse'] },
     { name: 'Smart Nursing', href: '/staff/worklist', icon: ClipboardCheck, roles: ['Admin', 'Doctor', 'Nurse'] },
-    { name: 'Billing', href: '/reception/billing', icon: DollarSign, roles: ['Admin', 'Receptionist'] },
-    { name: 'Blood Nexus', href: '/blood-nexus/manager', icon: Droplets, roles: ['Admin', 'BloodManager'] },
-    { name: 'NGO Portal', href: '/blood-nexus/ngo', icon: Users, roles: ['Admin', 'NGOPartner','BloodManager'] },
+
   ];
 
   const navItemsForLimelight: NavItem[] = useMemo(() => {

@@ -56,6 +56,13 @@ class BloodService:
         Phrelis Safety Engine: Cross-match Guard
         Returns True if donor group can be given to patient group.
         """
+        if not donor_group or not patient_group:
+            return False
+
+        # Normalize strings to prevent spacing/casing issues
+        dg = donor_group.strip().upper()
+        pg = patient_group.strip().upper()
+        
         # Universal Donor: O-
         # Universal Recipient: AB+
         matrix = {
@@ -68,7 +75,7 @@ class BloodService:
             "AB-": ["AB-", "AB+"],
             "AB+": ["AB+"]
         }
-        return patient_group in matrix.get(donor_group, [])
+        return pg in matrix.get(dg, [])
 
     @staticmethod
     def generate_donor_certificate(donor: models.Donor):

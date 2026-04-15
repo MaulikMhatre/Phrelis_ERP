@@ -1,9 +1,7 @@
-
-
 "use client";
 
 import React, { useState } from 'react';
-import { User, Heart, Activity, CheckCircle, AlertTriangle, ArrowRight, Activity as Pulse, ShieldAlert, Binary, Fingerprint, Users } from 'lucide-react';
+import { User, Heart, Activity, CheckCircle, AlertTriangle, ArrowRight, Activity as Pulse, ShieldAlert, Binary, Fingerprint, Users, Droplets, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { endpoints } from '@/utils/api';
 
@@ -23,6 +21,7 @@ export default function TriagePage() {
     patient_name: '',
     patient_age: '',
     gender: '', 
+    blood_group: 'O+',
     spo2: '',
     heart_rate: '',
     symptoms: ''
@@ -45,6 +44,7 @@ export default function TriagePage() {
           patient_name: formData.patient_name,
           patient_age: parseInt(formData.patient_age),
           gender: formData.gender,
+          blood_group: formData.blood_group,
           vitals: {
             spo2: parseInt(formData.spo2),
             heart_rate: parseInt(formData.heart_rate),
@@ -64,25 +64,25 @@ export default function TriagePage() {
   };
 
   const resetForm = () => {
-    setFormData({ patient_name: '', patient_age: '', gender: '', spo2: '', heart_rate: '', symptoms: '' });
+    setFormData({ patient_name: '', patient_age: '', gender: '', blood_group: 'O+', spo2: '', heart_rate: '', symptoms: '' });
     setResult(null);
     setErrorMsg(null);
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-8 font-sans transition-colors duration-500 selection:bg-primary/30">
+    <div className="min-h-screen bg-background text-foreground p-8 font-sans transition-colors duration-500">
       
-      {/* Background Ambience - Automatically adjusts via primary/10 */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-5%] right-[-5%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[100px]" />
-        <div className="absolute bottom-[-5%] left-[-5%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[100px]" />
+      {/* Subtle Background Glows */}
+      <div className="fixed inset-0 pointer-events-none opacity-40">
+        <div className="absolute top-[-5%] right-[-5%] w-[600px] h-[600px] bg-primary/5 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-5%] left-[-5%] w-[600px] h-[600px] bg-primary/5 rounded-full blur-[120px]" />
       </div>
 
       <div className="max-w-4xl mx-auto relative z-10">
-        <header className="mb-12 flex justify-between items-end border-b border-border pb-8">
+        <header className="mb-12 flex justify-between items-end pb-8 opacity-80">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-primary/10 rounded-lg border border-primary/20">
+              <div className="p-2 bg-primary/5 rounded-lg border border-primary/10">
                 <Fingerprint size={18} className="text-primary" />
               </div>
               <span className="text-[10px] font-black text-primary uppercase tracking-[0.4em]">Biometric Intake Phase</span>
@@ -91,172 +91,178 @@ export default function TriagePage() {
               Phrelis<span className="text-primary">OS</span>
             </h1>
           </div>
-          <div className="text-right hidden md:block">
-            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">System Protocol</p>
-            <p className="text-xs font-bold text-foreground uppercase tracking-tighter">AI-Triage.v2.4</p>
+          <div className="text-right hidden md:block opacity-40">
+            <p className="text-[10px] font-black uppercase tracking-widest">Protocol Sync</p>
+            <p className="text-xs font-bold uppercase tracking-tighter">AI-Triage.v2.4</p>
           </div>
         </header>
 
         <AnimatePresence mode="wait">
           {!result ? (
-            <motion.div key="form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="bg-card border border-border rounded-[2.5rem] p-10 shadow-xl dark:shadow-none relative overflow-hidden group transition-all duration-500">
+            <motion.div key="form" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}
+              className="bg-card/30 backdrop-blur-sm border border-border/40 rounded-[2.5rem] p-10 shadow-sm overflow-hidden group">
               
               <form onSubmit={handleSubmit} className="relative z-10 space-y-10">
                 {errorMsg && (
-                  <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-3">
-                    <AlertTriangle className="text-rose-500" size={20} />
-                    <span className="text-sm font-bold text-rose-500 uppercase">{errorMsg}</span>
+                  <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl flex items-center gap-3">
+                    <AlertTriangle className="text-rose-500/60" size={18} />
+                    <span className="text-[10px] font-black text-rose-500/60 uppercase tracking-widest">{errorMsg}</span>
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">Subject Identity</label>
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+                  <div className="md:col-span-12 space-y-2">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 opacity-50">Patient Identity</label>
                     <input
                       type="text" required value={formData.patient_name}
                       onChange={(e) => setFormData({ ...formData, patient_name: e.target.value })}
-                      className="w-full bg-background border border-border rounded-2xl p-5 text-foreground focus:border-primary/40 outline-none font-bold placeholder:opacity-20 transition-all"
-                      placeholder="SCANNING FULL LEGAL NAME..."
+                      className="w-full bg-transparent border-b border-border/60 p-5 text-foreground focus:border-primary outline-none font-bold placeholder:text-muted-foreground/50 transition-all"
+                      placeholder="ENTER FULL LEGAL NAME..."
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">Age (Cycles)</label>
-                      <input
-                        type="number" required value={formData.patient_age}
-                        onChange={(e) => setFormData({ ...formData, patient_age: e.target.value })}
-                        className="w-full bg-background border border-border rounded-2xl p-5 text-foreground focus:border-primary/40 outline-none font-bold transition-all"
-                        placeholder="00"
-                      />
-                    </div>
+                  <div className="md:col-span-4 space-y-2">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 opacity-50">Age (Cycles)</label>
+                    <input
+                      type="number" required value={formData.patient_age}
+                      onChange={(e) => setFormData({ ...formData, patient_age: e.target.value })}
+                      className="w-full bg-transparent border-b border-border/60 p-5 text-foreground focus:border-primary outline-none font-bold transition-all"
+                      placeholder="00"
+                    />
+                  </div>
 
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">Biological Gender</label>
+                  <div className="md:col-span-4 space-y-2">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 opacity-50">Biological Sex</label>
+                    <div className="relative">
                       <select
                         required value={formData.gender}
                         onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                        className="w-full bg-background border border-border rounded-2xl p-5 text-foreground focus:border-primary/40 outline-none font-bold appearance-none cursor-pointer"
+                        className={`w-full bg-transparent border-b border-border/60 p-5 font-bold cursor-pointer outline-none appearance-none transition-all ${
+                          formData.gender === "" ? "text-muted-foreground/50" : "text-foreground"
+                        }`}
                       >
-                        <option value="" disabled>SELECT</option>
-                        <option value="Male">MALE</option>
-                        <option value="Female">FEMALE</option>
-                        <option value="Other">OTHER</option>
+                        <option value="" disabled className="bg-background">SELECT GENDER</option>
+                        <option value="Male" className="bg-background text-foreground">MALE</option>
+                        <option value="Female" className="bg-background text-foreground">FEMALE</option>
+                        <option value="Other" className="bg-background text-foreground">OTHER</option>
                       </select>
+                      <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 opacity-20 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-4 space-y-2">
+                    <label className="text-[10px] font-black text-primary/40 uppercase tracking-widest ml-1 italic">Blood Type</label>
+                    <div className="relative">
+                      <select
+                        required value={formData.blood_group}
+                        onChange={(e) => setFormData({ ...formData, blood_group: e.target.value })}
+                        className="w-full bg-transparent border-b border-primary/30 p-5 text-primary font-black appearance-none outline-none cursor-pointer pr-10"
+                      >
+                        {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"].map(g => (
+                          <option key={g} value={g} className="bg-background text-foreground">{g}</option>
+                        ))}
+                      </select>
+                      <Droplets size={14} className="absolute right-4 top-1/2 -translate-y-1/2 opacity-30 pointer-events-none" />
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-10 border-t border-border">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6">
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2 opacity-50">
                       <Pulse size={12} className="text-blue-500" /> SpO2 Saturation
                     </label>
                     <input
                       type="number" required value={formData.spo2}
                       onChange={(e) => setFormData({ ...formData, spo2: e.target.value })}
-                      className="w-full bg-background border border-border rounded-2xl p-5 text-blue-500 focus:border-blue-500/40 outline-none font-black text-3xl font-mono"
-                      placeholder="98"
+                      className="w-full bg-transparent border-b border-blue-500/30 p-5 text-blue-500 focus:border-blue-500 outline-none font-black text-6xl font-mono transition-all placeholder:text-blue-500/30"
+                      placeholder="00"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2">
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-2 opacity-50">
                       <Heart size={12} className="text-rose-500" /> BPM Frequency
                     </label>
                     <input
                       type="number" required value={formData.heart_rate}
                       onChange={(e) => setFormData({ ...formData, heart_rate: e.target.value })}
-                      className="w-full bg-background border border-border rounded-2xl p-5 text-rose-500 focus:border-rose-500/40 outline-none font-black text-3xl font-mono"
-                      placeholder="72"
+                      className="w-full bg-transparent border-b border-rose-500/30 p-5 text-rose-500 focus:border-rose-500 outline-none font-black text-6xl font-mono transition-all placeholder:text-rose-500/30"
+                      placeholder="00"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1">Presenting Pathologies</label>
+                <div className="space-y-4 pt-10">
+                  <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 opacity-50 text-center block">Neural Pathology Description</label>
                   <textarea
-                    required rows={3} value={formData.symptoms}
+                    required rows={2} value={formData.symptoms}
                     onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
-                    className="w-full bg-background border border-border rounded-2xl p-5 text-foreground focus:border-primary/40 outline-none font-bold resize-none placeholder:opacity-20 transition-all"
-                    placeholder="ENTER SYMPTOMS SEPARATED BY COMMAS..."
+                    className="w-full bg-transparent border-b border-border/60 p-5 text-foreground focus:border-primary outline-none font-bold resize-none placeholder:text-muted-foreground/50 transition-all text-center"
+                    placeholder="DESCRIBE SYMPTOMS (COMMAS)..."
                   />
                 </div>
 
                 <button
                   type="submit" disabled={loading}
-                  className="w-full py-6 bg-primary text-primary-foreground font-black rounded-2xl hover:opacity-90 transition-all flex items-center justify-center gap-4 tracking-[0.4em] uppercase text-[10px] shadow-lg active:scale-[0.98]"
+                  className="w-full py-7 bg-primary text-primary-foreground font-black rounded-3xl hover:opacity-90 transition-all flex items-center justify-center gap-4 tracking-[0.5em] uppercase text-[10px] shadow-sm disabled:opacity-30"
                 >
                   {loading ? (
                     <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <>Establish Triage Link <ArrowRight size={18} /></>
+                    <>Run AI Assessment Phase <ArrowRight size={20} /></>
                   )}
                 </button>
               </form>
             </motion.div>
           ) : (
-            <motion.div key="result" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              className="bg-card border border-border rounded-[3rem] p-12 md:p-16 shadow-2xl relative overflow-hidden transition-all duration-500 text-center">
+            <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+              className="bg-card/40 backdrop-blur-md border border-border/40 rounded-[3rem] p-12 shadow-2xl relative overflow-hidden text-center">
               
-              <div className={`absolute top-0 left-0 w-full h-2 ${result.esi_level <= 2 ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+              <div className={`mx-auto w-20 h-20 rounded-2xl flex items-center justify-center mb-8 ${
+                result.esi_level <= 2 ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'
+              }`}>
+                {result.esi_level <= 2 ? <ShieldAlert size={40} /> : <CheckCircle size={40} />}
+              </div>
 
-              <div className="mb-12">
-                <div className={`mx-auto w-24 h-24 rounded-3xl flex items-center justify-center mb-8 border-2 ${
-                  result.esi_level <= 2 ? 'bg-rose-500/10 border-rose-500 text-rose-500' : 'bg-emerald-500/10 border-emerald-500 text-emerald-500'
+              <h2 className="text-3xl font-black text-foreground mb-4 uppercase tracking-tighter italic">Analysis Complete</h2>
+              
+              <div className="flex justify-center gap-4 mb-12">
+                <span className={`px-5 py-2 rounded-full font-black text-[10px] tracking-[0.3em] border ${
+                  result.esi_level <= 2 ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
                 }`}>
-                  {result.esi_level <= 2 ? <ShieldAlert size={48} /> : <CheckCircle size={48} />}
-                </div>
-                <h2 className="text-4xl font-black text-foreground mb-2 uppercase tracking-tighter italic">Assessment Complete</h2>
-                <span className={`px-6 py-2 rounded-full font-black text-[10px] tracking-[0.3em] border ${
-                  result.esi_level <= 2 ? 'bg-rose-500/10 border-rose-500/30 text-rose-500' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                }`}>
-                  ESI PRIORITY: LEVEL {result.esi_level}
+                  ESI LEVEL: {result.esi_level}
+                </span>
+                <span className="px-5 py-2 bg-muted/50 border rounded-full font-black text-[10px] tracking-[0.3em] uppercase">
+                    BED ID: {result.assigned_bed}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mb-12">
-                <div className="p-8 rounded-[2rem] bg-muted/30 border border-border">
-                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <User size={12} className="text-primary" /> Subject Identity
-                  </p>
-                  <span className="text-3xl font-black text-foreground uppercase leading-none tracking-tighter">{result.patient_name}</span>
-                  <p className="text-xs font-bold text-muted-foreground mt-2">{result.patient_age} Cycles • {formData.gender}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mb-10">
+                <div className="p-8 rounded-[2rem] bg-muted/20 border border-border/30">
+                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-4 opacity-50">Patient Identification</p>
+                  <span className="text-2xl font-black text-foreground uppercase tracking-tighter">{result.patient_name}</span>
+                  <p className="text-xs font-bold text-muted-foreground mt-2 uppercase">{result.patient_age} CYCLES • {formData.gender} • {formData.blood_group} TYPE</p>
                 </div>
 
-                <div className="p-8 rounded-[2rem] bg-muted/30 border border-border">
-                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Binary size={12} className="text-primary" /> Unit Allocation
-                  </p>
-                  <div className="flex items-baseline gap-3">
-                    <span className="text-4xl font-black text-primary uppercase leading-none italic tracking-tighter">{result.assigned_bed}</span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-2.5 h-2.5 bg-primary rounded-full animate-pulse shadow-[0_0_10px_var(--primary)]" />
-                      <span className="text-[8px] font-black text-muted-foreground uppercase tracking-tighter">Sync Active</span>
-                    </div>
+                <div className="p-8 rounded-[2rem] bg-primary/5 border border-primary/10">
+                  <p className="text-[9px] font-black text-primary/50 uppercase tracking-widest mb-4">Target Unit</p>
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl font-black text-primary uppercase tracking-tighter italic">{result.acuity} UNIT</span>
                   </div>
                 </div>
 
-                <div className="col-span-1 md:col-span-2 p-8 rounded-[2rem] bg-muted/30 border border-border">
-                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-4">Diagnostic Acuity Profile</p>
-                  <div className="flex flex-col gap-1">
-                    <span className={`text-2xl font-black uppercase tracking-tight ${result.esi_level <= 2 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                      {result.acuity} STATUS: {result.esi_level <= 2 ? 'CRITICAL CARE' : 'STABLE'}
-                    </span>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-border">
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3 italic">AI Neural Justification</p>
-                    <p className="text-sm font-medium text-muted-foreground leading-relaxed italic border-l-2 border-border pl-4">
-                      &quot;{result.ai_justification}&quot;
-                    </p>
-                  </div>
+                <div className="col-span-1 md:col-span-2 p-8 rounded-[2rem] border border-border/30 bg-muted/10">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-4 italic leading-none">Diagnostic Context</p>
+                  <p className="text-sm font-medium text-muted-foreground/80 leading-relaxed italic border-l-2 border-border/40 pl-6">
+                    &quot;{result.ai_justification}&quot;
+                  </p>
                 </div>
               </div>
 
               <button onClick={resetForm}
-                className="w-full md:w-auto px-16 py-5 bg-foreground text-background font-black rounded-2xl transition-all shadow-xl uppercase text-[10px] tracking-[0.4em] active:scale-95"
+                className="w-full md:w-auto px-20 py-5 bg-foreground text-background font-black rounded-2xl transition-all shadow-xl uppercase text-[10px] tracking-[0.4em] hover:opacity-90"
               >
-                Reset Intake Portal
+                Sync Next Intake
               </button>
             </motion.div>
           )}

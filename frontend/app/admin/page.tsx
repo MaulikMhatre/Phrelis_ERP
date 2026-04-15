@@ -757,7 +757,7 @@ import {
     BedDouble, Activity, BrainCircuit, Package,
     ArrowLeft, Plus, X, MapPin,
     Siren, LogOut, Baby, Stethoscope,
-    ShieldAlert, HeartPulse, Timer, UserCheck, Trash2
+    ShieldAlert, HeartPulse, Timer, UserCheck, Trash2, Droplets
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ResourceInventory from '@/components/ResourceInventory';
@@ -875,6 +875,129 @@ const CleaningTimer = ({ bedId, onRequestUnlock }: { bedId: string, onRequestUnl
     );
 };
 
+
+
+const AssignBloodModal = ({ isOpen, onClose, bed, onAssigned }: any) => {
+    const { token } = useAuth();
+    const { toast } = useToast();
+    const [inventory, setInventory] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadRepo = async () => {
+            if (isOpen && bed?.patient_blood_group) {
+                setLoading(true);
+                try {
+                    const [invRes, compRes] = await Promise.all([
+                        fetch(`http://localhost:8000/api/blood/inventory`),
+                        fetch(`http://localhost:8000/api/blood/compatible-donors/${encodeURIComponent(bed.patient_blood_group)}`)
+                    ]);
+                    
+                    const data = await invRes.json();
+                    const compatibleGroups = await compRes.json();
+
+                    const available = data.filter((bag: any) => 
+                        bag.status === 'Available' && 
+                        compatibleGroups.includes(bag.blood_group)
+                    );
+                    setInventory(available);
+                } catch (e) {
+                    console.error("Link Failure:", e);
+                } finally {
+                    setLoading(false);
+                }
+            }
+        };
+        loadRepo();
+    }, [isOpen, bed]);
+
+    const handleAssign = async (bagId: string) => {
+        try {
+            const res = await fetch(`http://localhost:8000/api/blood/assign-to-bed`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ 
+                    bag_id: bagId, 
+                    admission_uid: bed.admission_uid 
+                })
+            });
+            if (res.ok) {
+                toast("Blood Unit Allocated & Billed", "success");
+                onAssigned();
+                onClose();
+            } else {
+                const err = await res.json();
+                toast(err.detail || "Allocation Rejected", "error");
+            }
+        } catch (e) { 
+            toast("System Interface Fault", "error");
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={onClose} />
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-card rounded-[3rem] p-10 max-w-2xl w-full border border-red-500/20 relative z-10 shadow-2xl">
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h2 className="text-3xl font-black text-foreground italic uppercase flex items-center gap-3">
+                            <Droplets className="text-red-500" /> Blood Nexus
+                        </h2>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2 px-1">
+                            Requesting for Bed {bed.id} • Patient {bed.patient_name} ({bed.patient_blood_group})
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="p-3 bg-muted rounded-full hover:bg-red-500 hover:text-white transition-all"><X size={20}/></button>
+                </div>
+
+                {loading ? (
+                    <div className="py-20 text-center animate-pulse font-mono text-sm text-red-400">SCANNING BLOOD REPOSITORY...</div>
+                ) : !bed?.patient_blood_group ? (
+                    <div className="p-12 text-center bg-red-500/5 border border-dashed border-red-500/20 rounded-3xl">
+                         <Activity className="text-red-500/30 mx-auto mb-4" size={40} />
+                         <p className="text-sm font-black text-red-400 uppercase tracking-tighter">Biological Trace Missing</p>
+                         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-2 max-w-xs mx-auto">Patient blood group not recorded at admission. Update patient record to enable Blood-Nexus linkage.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
+                        {inventory.length === 0 ? (
+                            <div className="p-12 text-center bg-muted/20 border border-dashed border-border rounded-3xl">
+                                <p className="text-xs font-bold text-slate-500 uppercase">No compatible {bed.patient_blood_group} units found in live fridge.</p>
+                            </div>
+                        ) : (
+                            inventory.map(bag => (
+                                <div key={bag.bag_id} className="p-5 bg-muted/40 border border-border rounded-2xl flex justify-between items-center group hover:border-red-500/30 transition-all">
+                                    <div className="flex items-center gap-6">
+                                        <div className="p-4 bg-red-500/10 rounded-xl border border-red-500/20">
+                                            <Droplets size={24} className="text-red-500" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-black text-foreground uppercase tracking-tight">{bag.bag_id}</p>
+                                            <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mt-1">{bag.component_type} • {bag.blood_group}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        <div className="text-right">
+                                            <p className="text-lg font-black text-foreground">₹{bag.price?.toLocaleString() || "1,500"}</p>
+                                            <p className="text-[9px] font-black text-slate-500 uppercase">Unit Price</p>
+                                        </div>
+                                        <button onClick={() => handleAssign(bag.bag_id)} className="px-6 py-3 bg-red-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-red-500 transition-all shadow-lg shadow-red-600/20 active:scale-95">Assign</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+            </motion.div>
+        </div>
+    );
+};
+
 const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accentColor, genderLock, patientGender }: any) => {
     const { token } = useAuth();
     const isRed = accentColor === 'red';
@@ -929,7 +1052,12 @@ const BedCard = ({ bed, onDischarge, onAdmit, onStartCleaning, onRefresh, accent
                         <p className={`text-[10px] font-bold ${textClass} uppercase tracking-widest mt-1`}>{bed.condition || "General Care"}</p>
                         {bed.ventilator_in_use && <span className="inline-flex mt-3 items-center gap-1.5 text-[9px] font-black text-cyan-300 bg-cyan-950/50 px-3 py-1.5 rounded-md border border-cyan-500/30"><Activity size={10} /> VENTILATOR ONLINE</span>}
                     </div>
-                    <button onClick={onDischarge} className={`w-full py-3 ${isRed ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20'} border rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors`}>Initiate Discharge</button>
+                    <div className="flex gap-3">
+                        <button onClick={onDischarge} className={`flex-1 py-3 ${isRed ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20'} border rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors`}>Discharge</button>
+                        <button onClick={() => bed.onRequestBlood(bed)} className="w-14 h-12 flex items-center justify-center bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl hover:bg-red-500 hover:text-white transition-all shrink-0">
+                            <Droplets size={18} />
+                        </button>
+                    </div>
                 </div>
             ) : bed.status === "DIRTY" ? (
                 <div className="space-y-4">
@@ -974,7 +1102,8 @@ const AdminPanel = () => {
     const [patientData, setPatientData] = useState({
         name: '', age: '', gender: 'Male', condition: 'Stable',
         surgeonName: '', duration: 60,
-        surgeryType: 'Minor', admissionUid: ''
+        surgeryType: 'Minor', admissionUid: '',
+        bloodGroup: 'O+'
     });
 
     const [bookingData, setBookingData] = useState({
@@ -987,6 +1116,7 @@ const AdminPanel = () => {
     });
     const [rescueUrl, setRescueUrl] = useState<string | null>(null); 
     const [dischargeBedId, setDischargeBedId] = useState<string | null>(null);
+    const [bloodRequestBed, setBloodRequestBed] = useState<any | null>(null);
 
     const fetchERPData = useCallback(async () => {
         try {
@@ -1129,7 +1259,7 @@ const AdminPanel = () => {
         setPatientData({
             name: '', age: '', gender: 'Male', condition: defCond,
             surgeonName: '', duration: 60,
-            surgeryType: 'Minor', admissionUid: ''
+            surgeryType: 'Minor', admissionUid: '', bloodGroup: 'O+'
         });
         setIsModalOpen(true);
     };
@@ -1145,7 +1275,8 @@ const AdminPanel = () => {
                 patient_age: Number(patientData.age),
                 condition: patientData.condition,
                 staff_id: staffId,
-                gender: patientData.gender
+                gender: patientData.gender,
+                patient_blood_group: patientData.bloodGroup
             };
             let res;
             if (selectedBed.type === 'Surgery' || selectedBed.type === 'OT') {
@@ -1267,6 +1398,33 @@ const AdminPanel = () => {
                                 </div>
                                 <button type="submit" className={`col-span-12 xl:col-span-3 h-14 mt-auto rounded-xl font-black text-white text-xs uppercase tracking-[0.15em] shadow-lg ${dispatchForm.session_id ? 'bg-emerald-600' : 'bg-rose-600'}`}>Authorize</button>
                             </form>
+
+                            {rescueUrl && (
+                                <motion.div 
+                                    initial={{ opacity: 0, y: 10 }} 
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="mt-6 p-5 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl flex items-center justify-between animate-in fade-in"
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-emerald-500 rounded-xl text-white shadow-lg shadow-emerald-500/30">
+                                            <MapPin size={20} />
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest leading-none mb-1">Active Rescue Link</p>
+                                            <p className="text-xs font-mono text-foreground/80 truncate max-w-[200px] lg:max-w-md">{rescueUrl}</p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => { 
+                                            navigator.clipboard.writeText(rescueUrl); 
+                                            toast("Copied to Clipboard", "success"); 
+                                        }} 
+                                        className="px-6 py-3 bg-emerald-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/20 active:scale-95"
+                                    >
+                                        Copy Link
+                                    </button>
+                                </motion.div>
+                            )}
                         </div>
 
                         {/* FLEET COMMAND PANEL */}
@@ -1378,7 +1536,17 @@ const AdminPanel = () => {
                                     {activeUnit === 'Surgery' ? (
                                         <div className="col-span-full"><SurgerySection beds={beds} onRefresh={fetchERPData} onAdmit={openAdmitModal} /></div>
                                     ) : getDisplayBeds().map(bed => (
-                                        <BedCard key={bed.id} bed={bed} onDischarge={() => setDischargeBedId(bed.id)} onAdmit={() => openAdmitModal(bed)} onStartCleaning={handleStartCleaning} onRefresh={fetchERPData} accentColor={activeUnit === 'ICU' ? 'red' : activeUnit === 'Wards' ? 'green' : 'blue'} genderLock={activeUnit === 'Wards' && wardCategory === 'Medical' ? getBedGender(bed.id) : null} patientGender={patientData.gender} />
+                                        <BedCard 
+                                            key={bed.id} 
+                                            bed={{...bed, onRequestBlood: (b: any) => setBloodRequestBed(b)}} 
+                                            onDischarge={() => setDischargeBedId(bed.id)} 
+                                            onAdmit={() => openAdmitModal(bed)} 
+                                            onStartCleaning={handleStartCleaning} 
+                                            onRefresh={fetchERPData} 
+                                            accentColor={activeUnit === 'ICU' ? 'red' : activeUnit === 'Wards' ? 'green' : 'blue'} 
+                                            genderLock={activeUnit === 'Wards' && wardCategory === 'Medical' ? getBedGender(bed.id) : null} 
+                                            patientGender={patientData.gender} 
+                                        />
                                     ))}
                                 </motion.div>
                             </AnimatePresence>
@@ -1392,7 +1560,7 @@ const AdminPanel = () => {
             <AnimatePresence>
                 {/* DELETE RESERVATION ALERT */}
                 {resToDelete && (
-                    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                    <div key="delete-modal" className="fixed inset-0 z-[110] flex items-center justify-center p-4">
                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-background/80 backdrop-blur-xl" onClick={() => setResToDelete(null)} />
                          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-card rounded-[3rem] p-8 max-w-sm w-full border border-rose-500/20 relative z-10 text-center shadow-2xl">
                             <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6"><Trash2 size={32} className="text-rose-500" /></div>
@@ -1408,7 +1576,7 @@ const AdminPanel = () => {
 
                 {/* PRE-BOOKING MODAL (OT) */}
                 {isReservationModalOpen && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div key="reserve-modal" className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsReservationModalOpen(false)} />
                         <motion.div className="bg-card rounded-[2.5rem] p-10 max-w-xl w-full border border-border relative z-10 shadow-2xl overflow-y-auto max-h-[90vh]">
                             <h2 className="text-3xl font-black text-foreground uppercase italic mb-8 border-b pb-4">OT PRE-BOOKING</h2>
@@ -1449,7 +1617,7 @@ const AdminPanel = () => {
 
                 {/* ADMIT MODAL (ORIGINAL VERSION) */}
                 {isModalOpen && selectedBed && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div key="admit-modal" className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsModalOpen(false)} />
                         <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="bg-card rounded-[2.5rem] p-10 max-w-xl w-full border border-border relative z-10 shadow-2xl">
                             <div className="flex justify-between items-center mb-8 border-b border-border pb-6">
@@ -1463,6 +1631,9 @@ const AdminPanel = () => {
                                     <input type="number" required className="p-5 bg-muted/40 border border-border rounded-2xl" placeholder="Age" value={patientData.age} onChange={e => setPatientData({ ...patientData, age: e.target.value })} />
                                     <select className="p-5 bg-muted/40 border border-border rounded-2xl" value={patientData.gender} onChange={e => setPatientData({ ...patientData, gender: e.target.value })}><option value="Male">Male</option><option value="Female">Female</option></select>
                                 </div>
+                                <select className="w-full p-5 bg-muted/40 border border-border rounded-2xl font-bold" value={patientData.bloodGroup} onChange={e => setPatientData({ ...patientData, bloodGroup: e.target.value })}>
+                                    {['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
+                                </select>
                                 {(selectedBed.type === 'Surgery' || selectedBed.type === 'OT') && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-indigo-500/5 border border-indigo-500/20 rounded-3xl">
                                         <select className="p-5 bg-card border border-border rounded-2xl" value={patientData.surgeryType} onChange={e => setPatientData({ ...patientData, surgeryType: e.target.value })}><option value="Minor">Minor</option><option value="Major">Major</option><option value="Intermediate">Intermediate</option><option value="Specialized">Specialized</option></select>
@@ -1478,7 +1649,7 @@ const AdminPanel = () => {
 
                 {/* DISCHARGE MODAL */}
                 {dischargeBedId && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div key="discharge-modal" className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-background/80 backdrop-blur-xl" onClick={() => setDischargeBedId(null)} />
                         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-card rounded-[3rem] p-8 max-w-sm w-full border border-rose-500/20 relative z-10 text-center shadow-2xl">
                             <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6"><LogOut size={32} className="text-rose-500" /></div>
@@ -1490,6 +1661,17 @@ const AdminPanel = () => {
                         </motion.div>
                     </div>
                 )}
+                {/* BLOOD REQUEST MODAL */}
+                <AssignBloodModal 
+                    key="blood-nexus-modal"
+                    isOpen={!!bloodRequestBed} 
+                    onClose={() => setBloodRequestBed(null)} 
+                    bed={bloodRequestBed} 
+                    onAssigned={() => {
+                        toast("Blood Unit Assigned & Billed", "success");
+                        fetchERPData();
+                    }} 
+                />
             </AnimatePresence>
         </div>
     );
