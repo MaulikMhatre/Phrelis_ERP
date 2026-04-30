@@ -299,100 +299,221 @@ class LocationUpdate(BaseModel):
 
 
 COMMON_ER_MAP = {
-    # --- CARDIOVASCULAR & RESPIRATORY (High Acuity) ---
-    "chest pain": {
-        "code": "R07.9", 
-        "desc": "Chest pain, unspecified", 
-        "urgency": "EMERGENCY",
-        "rationale": "High-risk indicator for Acute Coronary Syndrome (ACS). Protocol requires immediate ECG to rule out myocardial infarction."
-    },
-    "shortness of breath": {
-        "code": "R06.02", 
-        "desc": "Shortness of breath", 
-        "urgency": "EMERGENCY",
-        "rationale": "Potential respiratory failure or Pulmonary Embolism. Requires immediate SpO2 and airway assessment."
-    },
-    "palpitations": {
-        "code": "R00.2", 
-        "desc": "Palpitations", 
-        "urgency": "URGENT",
-        "rationale": "Potential arrhythmia (Atrial Fibrillation/SVT). Requires ECG to assess hemodynamic stability."
-    },
+    # --- CARDIOVASCULAR & RESPIRATORY ---
+    "chest pain": { "code": "R07.9", "desc": "Chest pain, unspecified", "urgency": "EMERGENCY", "rationale": "Must rule out Acute Coronary Syndrome (ACS) immediately via ECG/Troponin." },
+    "shortness of breath": { "code": "R06.02", "desc": "Dyspnea", "urgency": "EMERGENCY", "rationale": "Potential respiratory failure, PE, or CHF exacerbation. Check SpO2/ABG." },
+    "palpitations": { "code": "R00.2", "desc": "Palpitations", "urgency": "URGENT", "rationale": "Assess for Atrial Fibrillation or SVT. Hemodynamic stability is priority." },
+    "respiratory arrest": { "code": "R09.2", "desc": "Respiratory arrest", "urgency": "EMERGENCY", "rationale": "Immediate life threat. Intubation and ventilation protocol." },
 
-    # --- NEUROLOGICAL (Stroke/Seizure) ---
-    "weakness": {
-        "code": "R53.1", 
-        "desc": "Weakness, unspecified", 
-        "urgency": "EMERGENCY",
-        "rationale": "If focal or sudden, highly suggestive of Stroke (CVA). 'Time is Brain' protocol applies; immediate CT Head required."
-    },
-    "slurred speech": {
-        "code": "R47.81", 
-        "desc": "Slurred speech", 
-        "urgency": "EMERGENCY",
-        "rationale": "Acute neurological deficit. Must rule out Ischemic/Hemorrhagic Stroke via immediate neurology consult."
-    },
-    "seizure": {
-        "code": "G40.909", 
-        "desc": "Seizure, unspecified", 
-        "urgency": "EMERGENCY",
-        "rationale": "Risk of status epilepticus and airway compromise. Requires immediate benzodiazepine protocol and EEG follow-up."
-    },
+    # --- NEUROLOGICAL ---
+    "weakness": { "code": "R53.1", "desc": "Focal Weakness", "urgency": "EMERGENCY", "rationale": "Sudden onset focal weakness is Stroke until proven otherwise. Time is brain." },
+    "slurred speech": { "code": "R47.81", "desc": "Dysphasia", "urgency": "EMERGENCY", "rationale": "Acute neurological deficit. Activate Code Stroke/Neurology consult." },
+    "seizure": { "code": "G40.909", "desc": "Seizure activity", "urgency": "EMERGENCY", "rationale": "Monitor for Status Epilepticus and airway obstruction. Benzo protocol." },
+    "unconscious": { "code": "R40.20", "desc": "Coma/Unconscious", "urgency": "EMERGENCY", "rationale": "GCS < 8 requires immediate airway protection and CT Head." },
+    "yellowish body": { "code": "R17", "desc": "Jaundice", "urgency": "URGENT", "rationale": "Hyperbilirubinemia suspected. Rule out acute liver failure or biliary obstruction." },
+    "jaundice": { "code": "R17", "desc": "Jaundice", "urgency": "URGENT", "rationale": "Yellowing of skin/sclera. Check liver function tests and coagulation profile." },
 
-    # --- TRAUMA & ACCIDENTS ---
-    "fall": {
-        "code": "W19.XXXA", 
-        "desc": "Unspecified fall, initial encounter", 
-        "urgency": "URGENT",
-        "rationale": "Risk of occult fractures or internal hemorrhage, especially in geriatric patients on anticoagulants."
-    },
-    "bleeding": {
-        "code": "R58", 
-        "desc": "Hemorrhage, not elsewhere classified", 
-        "urgency": "EMERGENCY",
-        "rationale": "Risk of hypovolemic shock. Requires immediate pressure, fluid resuscitation, and CBC/Cross-match."
-    },
-    "head injury": {
-        "code": "S09.90XA", 
-        "desc": "Unspecified injury of head", 
-        "urgency": "EMERGENCY",
-        "rationale": "Risk of intracranial pressure (ICP) elevation or hematoma. Monitor GCS scores every 15 minutes."
-    },
+    # --- TRAUMA, BITES & TOXICOLOGY ---
+    "snake bite": { "code": "X20.0XXA", "desc": "Venomous Bite", "urgency": "EMERGENCY", "rationale": "Risk of neuro/hemotoxicity. Antivenom protocol and close monitoring required." },
+    "poisoning": { "code": "T65.91XA", "desc": "Toxic Ingestion", "urgency": "EMERGENCY", "rationale": "Immediate tox-screen and gastric lavage/charcoal as indicated by substance." },
+    "accident": { "code": "V89.2XXA", "desc": "Road Traffic Accident", "urgency": "EMERGENCY", "rationale": "High-velocity trauma. Full body scan and spinal immobilization protocol." },
+    "bleeding": { "code": "R58", "desc": "Hemorrhage", "urgency": "EMERGENCY", "rationale": "Risk of hypovolemic shock. Fluid resuscitation and cross-match immediate." },
+    "fracture": { "code": "M84.30XA", "desc": "Open Fracture", "urgency": "URGENT", "rationale": "Risk of infection and neurovascular compromise. Splinting and IV antibiotics." },
+    "burn": { "code": "T30.0", "desc": "Thermal Burn", "urgency": "URGENT", "rationale": "Fluid loss and secondary infection. Assess TBSA via Rule of Nines." },
 
-    # --- GASTRO & METABOLIC ---
-    "vomiting": {
-        "code": "R11.10", 
-        "desc": "Vomiting, unspecified", 
-        "urgency": "URGENT",
-        "rationale": "Risk of dehydration and electrolyte imbalance. Assess for metabolic alkalosis and fluid responsiveness."
-    },
-    "dizziness": {
-        "code": "R42", 
-        "desc": "Dizziness and giddiness", 
-        "urgency": "STABLE",
-        "rationale": "Broad differential from vertigo to orthostatic hypotension. Check BP (lying/standing) and HINTS exam."
-    },
-    "allergic reaction": {
-        "code": "T78.40XA", 
-        "desc": "Allergy, unspecified", 
-        "urgency": "EMERGENCY",
-        "rationale": "Risk of Anaphylaxis. Monitor for stridor, wheezing, or hypotension. Epinephrine should be on standby."
-    },
+    # --- METABOLIC & INFECTION ---
+    "high sugar": { "code": "E11.65", "desc": "Hyperglycemia", "urgency": "URGENT", "rationale": "Risk of Diabetic Ketoacidosis (DKA) or HHS. Monitor ketones/pH." },
+    "low sugar": { "code": "E16.2", "desc": "Hypoglycemia", "urgency": "EMERGENCY", "rationale": "Neuroglycopenia risk. Immediate D50 administration required." },
+    "high bp": { "code": "I16.9", "desc": "Hypertensive Crisis", "urgency": "URGENT", "rationale": "Risk of Stroke, Renal Failure, or Aortic Dissection. IV antihypertensives." },
+    "low bp": { "code": "I95.9", "desc": "Hypotension", "urgency": "EMERGENCY", "rationale": "Potential Sepsis or Shock. Fluid bolus and vasopressor standby." },
+    "fever": { "code": "R50.9", "desc": "High Grade Fever", "urgency": "URGENT", "rationale": "In high-risk patients, screen for Sepsis or Meningitis." },
 
-    # --- PEDIATRIC SPECIALS ---
-    "pediatric fever": {
-        "code": "R50.9", 
-        "desc": "Fever, unspecified (Pediatric)", 
-        "urgency": "URGENT",
-        "rationale": "In infants <90 days, fever is an automatic sepsis workup. Risk of meningitis must be ruled out."
-    },
-    "dehydration": {
-        "code": "E86.0", 
-        "desc": "Dehydration", 
-        "urgency": "URGENT",
-        "rationale": "Common in pediatric gastro cases. Check capillary refill and mucous membranes for fluid deficit."
-    }
+    # --- ABDOMINAL & GENERAL ---
+    "abdominal pain": { "code": "R10.9", "desc": "Acute Abdomen", "urgency": "URGENT", "rationale": "Differential: Appendicitis, Cholecystitis, or Bowel Obstruction. NPO protocol." },
+    "vomiting": { "code": "R11.10", "desc": "Intractable Emesis", "urgency": "STABLE", "rationale": "Risk of electrolyte imbalance. Rehydrate via IV Fluids." },
+    "dehydration": { "code": "E86.0", "desc": "Severe Dehydration", "urgency": "URGENT", "rationale": "Common in gastro/pediatric cases. Check capillary refill and turgor." },
+    "allergic reaction": { "code": "T78.40XA", "desc": "Anaphylaxis Risk", "urgency": "EMERGENCY", "rationale": "Risk of airway closure. Epinephrine and steroids immediate." },
+    "cough": { "code": "R05.9", "desc": "Chronic Cough", "urgency": "STABLE", "rationale": "Rule out Pneumonia or TB via CXR if associated with fever." },
+    "headache": { "code": "R51.9", "desc": "Severe Headache", "urgency": "URGENT", "rationale": "Rule out Subarachnoid Hemorrhage (SAH) if 'worst of life' onset." }
 }
+
+
+
+# class MedicalAgent:
+#     def __init__(self):
+#         # 2. GET API KEY EXPLICITLY
+#         api_key = os.getenv("GOOGLE_API_KEY")
+        
+#         # Validation for a "Perfect" setup
+#         if not api_key or api_key == "your_api_key_here":
+#             print("[CRITICAL ERROR]: Google API Key is missing or invalid in .env")
+#             self.active = False
+#             return
+        
+#         try:
+#             self.llm = ChatGoogleGenerativeAI(
+#                 model="gemini-flash-latest",
+#                 temperature=0,
+#                 api_key=api_key,
+#                 max_output_tokens=500
+#             )
+            
+#             # Pre-compile structured adapters for maximum speed
+#             self.triage_engine = self.llm.with_structured_output(TriageDecision)
+#             self.icd_engine = self.llm.with_structured_output(ICDClassification)
+            
+#             self.active = True
+#             print("[OK] Phrelis AI Core Optimized.")
+#         except Exception as e:
+#             print(f"[ERROR] AI Core Failed: {e}")
+#             self.active = False
+            
+#     async def analyze_patient(self, symptoms: List[str], vitals: dict) -> TriageDecision:
+#         if not self.active:
+#             return TriageDecision(
+#                 esi_level=3, justification="AI Offline. Protocol Fallback.", 
+#                 bed_type="ER", acuity_label="Standard", recommended_actions=["Triage Info"]
+#             )
+
+#         # 1. IMMEDIATE HARDCODED LOOKUP (Bypass AI for common symptoms)
+#         complaint_joined = " ".join(symptoms).lower()
+#         local_data = self._get_local_fallback(complaint_joined)
+        
+#         if local_data and local_data.get("code") != "R69":
+#             # Map established protocol to triage decision
+#             esi_map = {"EMERGENCY": 2, "URGENT": 3, "STABLE": 4}
+#             bed_map = {"EMERGENCY": "ICU", "URGENT": "ER", "STABLE": "Wards"}
+            
+#             return TriageDecision(
+#                 esi_level=esi_map.get(local_data["urgency"], 3),
+#                 justification=f"Standard Clinical Protocol: {local_data['rationale']}",
+#                 bed_type=bed_map.get(local_data["urgency"], "ER"),
+#                 acuity_label=local_data["desc"],
+#                 recommended_actions=["Immediate Vitals Check", "Baseline ECG" if "chest" in complaint_joined else "Standard Protocol"]
+#             )
+
+#         # 2. AI INTELLIGENCE (For unique or complex symptoms)
+#         system_prompt = (
+#             "Senior Clinical Triage Engine (Phrelis OS). Protocol: ESI v5.\n\n"
+#             "DIFFERENTIALS:\n"
+#             "- Paresthesia -> Vit B12/Neuropathy | Fatigue -> Anemia | Polyuria -> Diabetes.\n\n"
+#             "LOGIC:\n"
+#             "1: Resus. 2: Emergent. 3: Urgent. 4: Non-urgent. 5: Low acuity.\n"
+#             "Map ESI 1-2 -> ICU | 3 -> ER | 4-5 -> Wards.\n\n"
+#             "FORMAT (Strict justification):\n"
+#             "'Level [X] assigned. Symptoms of [Symptom] suggest potential [Condition], requiring [Action] to prevent [Complication].'\n\n"
+#             "Respond ONLY in JSON matching TriageDecision schema."
+#         )
+        
+#         user_input = f"Symptoms: {symptoms}. Vitals: {vitals}."
+        
+#         try:
+#             return await asyncio.wait_for(
+#                 self.triage_engine.ainvoke([
+#                     {"role": "system", "content": system_prompt},
+#                     {"role": "user", "content": user_input}
+#                 ]),
+#                 timeout=10
+#             )
+#         except (asyncio.TimeoutError, Exception) as e:
+#             # 3. ULTIMATE SAFETY FALLBACK (Only if AI fails AND no hardcoded match found)
+#             print(f"Triage AI Latency/Error: {e}")
+#             return TriageDecision(
+#                 esi_level=3, 
+#                 justification="Level 3 assigned. Complex presentation requires manual clinical verification to rule out occult pathology.", 
+#                 bed_type="ER",
+#                 acuity_label="Clinical Precaution",
+#                 recommended_actions=["Manual Triage Verification", "Assess ABCs"]
+#             )
+
+#     def _get_local_fallback(self, complaint: str) -> dict:
+#         complaint_low = complaint.lower()
+    
+#     # 1. Create a priority-sorted list of keys based on urgency
+#     # This ensures "chest pain" is caught before "dizziness" if both are present
+#         priority_order = ["EMERGENCY", "URGENT", "STABLE"]
+    
+#         for level in priority_order:
+#             for key, data in COMMON_ER_MAP.items():
+#                 if data["urgency"] == level and key in complaint_low:
+#                     return data
+                
+#     # 2. Ultimate generic fallback
+#         return {
+#         "code": "R69", 
+#         "desc": "Illness, unspecified", 
+#         "urgency": "STABLE", 
+#         "rationale": "Non-specific complaint. Monitoring vitals for escalation signs."
+#         }
+#     async def classify_icd(self, complaint: str, symptoms: List[str]) -> ICDClassification:
+#         # 1. Immediate exit if agent is inactive
+#         if not self.active:
+#             fallback = self._get_local_fallback(complaint)
+#             return ICDClassification(
+#                 icd_code=fallback["code"],
+#                 official_description=f"{fallback['desc']}",
+#                 chapter_prefix=fallback["code"][0],
+#                 confidence_score=0.1,
+#                 clinical_rationale=fallback["rationale"],
+#                 triage_urgency=fallback["urgency"]
+#             )
+
+#         # system_prompt = (
+#         #     "You are the Phrelis OS Clinical Intelligence Core, a high-precision medical classification engine. "
+#         #     "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\n\n"
+#         #     "OPERATIONAL LOGIC:\n"
+#         #     "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\n"
+#         #     "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\n"
+#         #     "3. Specificity Rule: Provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\n\n"
+#         #     "Return a JSON object following the ICDClassification schema accurately."
+#         # )
+
+#         system_prompt = (
+#     "## ROLE: Phrelis OS Clinical Intelligence Core (ICD-10-CM 2026)\n"
+#     "## TASK: Map unstructured patient data to structured ICD-10 codes for triage.\n\n"
+    
+#     "## OPERATIONAL LOGIC:\n"
+#     "- PRIMARY: Map anatomical system (I: Circulatory/Heat, J: Respiratory/Lungs, G: Nervous/Brain, K: Digestive/Liver, S-T: Injury/Trauma, R: Symptoms).\n"
+#     "- ACUITY: Keyword-driven (sudden/sharp/crushing/severe) -> Prioritize Acute codes.\n"
+#     "- SPECIFICITY: Use 3-5 character alphanumeric codes (e.g., I21.9).\n"
+#     "- SAFETY: If ambiguous, select highest urgency code for anatomy.\n\n"
+
+#     "## CONSTRAINT:\n"
+#     "- Respond ONLY with JSON strictly following the ICDClassification schema.\n"
+#     "- No preamble. No markdown outside the JSON."
+# )
+        
+#         user_input = f"Primary Complaint: {complaint}. Supporting Symptoms: {symptoms}."
+        
+#         try:
+#             # 2. THE RACE: 10 SECOND TIMEOUT
+#             return await asyncio.wait_for(
+#                 self.icd_engine.ainvoke([
+#                     {"role": "system", "content": system_prompt},
+#                     {"role": "user", "content": user_input}
+#                 ]),
+#                 timeout=10
+#             )
+
+#         except (asyncio.TimeoutError, Exception) as e:
+#             # 3. FALLBACK TRIGGER
+#             error_type = "TIMEOUT" if isinstance(e, asyncio.TimeoutError) else "PROCESSING ERROR"
+#             print(f"[{error_type}]: Switched to Local Fallback for {complaint}")
+            
+#             fallback = self._get_local_fallback(complaint)
+#             return ICDClassification(
+#                 icd_code=fallback["code"],
+#                 official_description=fallback["desc"],
+#                 chapter_prefix=fallback["code"][0],
+#                 confidence_score=0.0,
+#                 clinical_rationale=fallback["rationale"],
+#                 triage_urgency=fallback["urgency"]
+#             )
+
+
+
+
+
 
 
 
@@ -403,24 +524,17 @@ class MedicalAgent:
         
         # Validation for a "Perfect" setup
         if not api_key or api_key == "your_api_key_here":
-            print("[CRITICAL ERROR]: Google API Key is missing or invalid in .env")
+            print("[X] CRITICAL ERROR: Google API Key is missing or invalid in .env")
             self.active = False
             return
         
         try:
             # 3. PASS API KEY EXPLICITLY TO THE CONSTRUCTOR
             # Use 'api_key' parameter to ensure LangChain receives it correctly
-            # self.llm = ChatGoogleGenerativeAI(
-            #     model="models/gemini-flash-latest", 
-            #     temperature=0,
-            #     api_key=api_key  # Pass it here explicitly
-            # )
             self.llm = ChatGoogleGenerativeAI(
-            model="gemini-3.1-flash-lite-preview", # Switch to Lite for max speed
-            temperature=0,
-            api_key=api_key,
-            thinking_level="minimal", 
-            max_output_tokens=500  # Triage JSON is short; don't let it "wander"
+                model="models/gemini-flash-latest", 
+                temperature=0,
+                api_key=api_key  # Pass it here explicitly
             )
             
             # Using Structured Output for Senior Dev accuracy
@@ -428,7 +542,7 @@ class MedicalAgent:
             self.active = True
             print("[OK] Medical AI Agent linked and active.")
         except Exception as e:
-            print(f"[ERROR] Initialization Failed: {e}")
+            print(f"[X] Initialization Failed: {e}")
             self.active = False
             
     async def analyze_patient(self, symptoms: List[str], vitals: dict) -> TriageDecision:
@@ -442,6 +556,7 @@ class MedicalAgent:
             )
 
         system_prompt = (
+    "You are the Phrelis OS Ultra-Fast Triage Engine.\n"
     "You are a Senior Clinical Triage Decision Engine for Phrelis Hospital OS.\n\n"
     
     "### LOGIC HIERARCHY (ESI v5 Protocol):\n"
@@ -450,7 +565,6 @@ class MedicalAgent:
     "3. ESI 3: Stable, requires multiple resources (Labs + IV + Imaging).\n"
     "4. ESI 4: Stable, requires one resource (e.g., simple X-ray, sutures).\n"
     "5. ESI 5: Stable, requires zero resources (e.g., prescription refill).\n\n"
-     " DO NOT skip any fields."
 
     "### CLINICAL CORRELATION LOGIC:\n"
     "Analyze symptoms for underlying nutritional or systemic deficiencies:\n"
@@ -487,93 +601,52 @@ class MedicalAgent:
                 recommended_actions=["Manual Triage Required"]
             )
 
-    def _get_local_fallback(self, complaint: str) -> dict:
-        complaint_low = complaint.lower()
-    
-    # 1. Create a priority-sorted list of keys based on urgency
-    # This ensures "chest pain" is caught before "dizziness" if both are present
-        priority_order = ["EMERGENCY", "URGENT", "STABLE"]
-    
-        for level in priority_order:
-            for key, data in COMMON_ER_MAP.items():
-                if data["urgency"] == level and key in complaint_low:
-                    return data
-                
-    # 2. Ultimate generic fallback
-        return {
-        "code": "R69", 
-        "desc": "Illness, unspecified", 
-        "urgency": "STABLE", 
-        "rationale": "Non-specific complaint. Monitoring vitals for escalation signs."
-        }
     async def classify_icd(self, complaint: str, symptoms: List[str]) -> ICDClassification:
-        # 1. Immediate exit if agent is inactive
         if not self.active:
-            fallback = self._get_local_fallback(complaint)
             return ICDClassification(
-                icd_code=fallback["code"],
-                official_description=f"{fallback['desc']}",
-                chapter_prefix=fallback["code"][0],
-                confidence_score=0.1,
-                clinical_rationale=fallback["rationale"],
-                triage_urgency=fallback["urgency"]
+                icd_code="R69",
+                official_description="Illness, unspecified",
+                chapter_prefix="R",
+                confidence_score=0.5,
+                clinical_rationale="AI offline.",
+                triage_urgency="STABLE"
             )
 
-        # system_prompt = (
-        #     "You are the Phrelis OS Clinical Intelligence Core, a high-precision medical classification engine. "
-        #     "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\n\n"
-        #     "OPERATIONAL LOGIC:\n"
-        #     "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\n"
-        #     "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\n"
-        #     "3. Specificity Rule: Provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\n\n"
-        #     "Return a JSON object following the ICDClassification schema accurately."
-        # )
-
         system_prompt = (
-    "## ROLE: Phrelis OS Clinical Intelligence Core (ICD-10-CM 2026)\n"
-    "## TASK: Map unstructured patient data to structured ICD-10 codes for triage.\n\n"
-    
-    "## OPERATIONAL LOGIC:\n"
-    "- PRIMARY: Map anatomical system (I: Circulatory, J: Respiratory, G: Nervous).\n"
-    "- ACUITY: Keyword-driven (sudden/sharp/crushing/severe) -> Prioritize Acute codes.\n"
-    "- SPECIFICITY: Use 3-5 character alphanumeric codes (e.g., I21.9).\n"
-    "- SAFETY: If ambiguous, select highest urgency code for anatomy.\n\n"
-
-    "## CONSTRAINT:\n"
-    "- Respond ONLY with JSON strictly following the ICDClassification schema.\n"
-    "- No preamble. No markdown outside the JSON."
-)
+            "You are the Ultra-Fast Phrelis OS Clinical Intelligence Core, a high-precision medical classification engine. "
+            "Your purpose is to map unstructured patient data to the ICD-10-CM (2026 Edition) ontology for real-time triage prioritization.\\n\\n"
+            "OPERATIONAL LOGIC:\\n"
+            "1. Anatomical Mapping: Identify the primary system (e.g., I=Circulatory, J=Respiratory, G=Nervous).\\n"
+            "2. Acuity Assessment: If keywords like 'sudden', 'sharp', 'crushing', or 'severe' are present, prioritize Acute classifications.\\n"
+            "3. Specificity Rule: If data is insufficient for a 7-character code, provide the most accurate 3-to-5 character category (e.g., I21.9 for unspecified MI).\\n\\n"
+            "Return a JSON object following the ICDClassification schema accurately."
+        )
         
         user_input = f"Primary Complaint: {complaint}. Supporting Symptoms: {symptoms}."
         
         try:
-            # Create the structured output generator
+            # Create a specialized structured LLM for ICD classification
             structured_icd = self.llm.with_structured_output(ICDClassification)
-            
-            # 2. THE RACE: 10 SECOND TIMEOUT
-            # If Gemini takes more than 10s, it raises asyncio.TimeoutError
-            return await asyncio.wait_for(
-                structured_icd.ainvoke([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input}
-                ]),
-                timeout=10
+            return await structured_icd.ainvoke([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input}
+            ])
+        except Exception as e:
+            print(f"ICD Classification Error: {e}")
+            return ICDClassification(
+                icd_code="R68.89",
+                official_description="Other specified general symptoms and signs",
+                chapter_prefix="R",
+                confidence_score=0.0,
+                clinical_rationale=f"Fallback due to processing error: {str(e)[:50]}",
+                triage_urgency="STABLE"
             )
 
-        except (asyncio.TimeoutError, Exception) as e:
-            # 3. FALLBACK TRIGGER
-            error_type = "TIMEOUT" if isinstance(e, asyncio.TimeoutError) else "PROCESSING ERROR"
-            print(f"[{error_type}]: Switched to Local Fallback for {complaint}")
-            
-            fallback = self._get_local_fallback(complaint)
-            return ICDClassification(
-                icd_code=fallback["code"],
-                official_description=fallback["desc"],
-                chapter_prefix=fallback["code"][0],
-                confidence_score=0.0,
-                clinical_rationale=fallback["rationale"],
-                triage_urgency=fallback["urgency"]
-            )
+
+
+
+
+
 # 4. INITIALIZE THE AGENT AFTER LOAD_DOTENV()
 ai_agent = MedicalAgent()
 
